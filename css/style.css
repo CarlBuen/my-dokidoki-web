@@ -50,42 +50,38 @@ button,input,textarea,select{font:inherit}
   padding:0 8px 18px;border-bottom:1px solid rgba(220,242,228,.16)
 }
 .side-section+.side-section{margin-top:0}
+.section-heading{display:flex;align-items:center;gap:10px}
 .section-toggle{
-  width:100%;border:0;background:transparent;color:#f0f6f1;text-align:left;
-  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  min-width:0;flex:1;border:0;background:transparent;color:#f0f6f1;text-align:left;
+  display:flex;align-items:center;justify-content:flex-start;gap:8px;
   padding:6px 0 12px;font-family:"Axeblast",Impact,sans-serif;
   font-size:clamp(25px,3vw,38px);font-weight:400;cursor:pointer
 }
 .chevron{
-  width:30px;display:inline-block;text-align:center;font-size:29px;font-weight:400;
+  width:24px;flex:none;display:inline-block;text-align:center;font-size:29px;font-weight:400;
   transition:transform .15s
 }
 .section-toggle.collapsed .chevron{transform:rotate(-90deg)}
-.section-list{min-height:0;display:grid;gap:8px}
-.section-toggle.collapsed+.section-list{display:none}
+.section-list{min-height:0;display:grid;gap:2px}
+.side-section.collapsed .section-list{display:none}
 .side-item{
-  min-width:0;display:flex;align-items:center;gap:11px;padding:10px 12px;
-  border:1px solid rgba(196,220,203,.14);border-radius:10px;
-  background:rgba(33,56,44,.74);color:#e2ece4;cursor:pointer;font-size:14px;
-  transition:background .15s,border-color .15s,transform .15s
+  min-width:0;display:flex;align-items:center;gap:8px;padding:4px 3px;
+  border:0;border-radius:5px;background:transparent;color:#e2ece4;cursor:pointer;font-size:14px;
+  transition:background .15s,color .15s
 }
-.side-item:hover{background:#294535;border-color:rgba(122,216,157,.42);transform:translateY(-1px)}
-.item-icon{
-  flex:none;width:30px;height:30px;display:grid;place-items:center;
-  border-radius:8px;background:rgba(87,214,141,.14);color:#86dfa5;
-  font-size:13px;font-weight:800
-}
+.side-item:hover{background:rgba(87,214,141,.08);color:#a4e8ba}
 .item-title{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .side-item .delete-pin{
-  flex:none;width:26px;height:26px;border:0;border-radius:7px;background:transparent;
-  color:#d8e6dd;cursor:pointer;font-size:19px;opacity:.7
+  flex:none;width:22px;height:22px;border:0;border-radius:5px;background:transparent;
+  color:#d8e6dd;cursor:pointer;font-size:17px;opacity:0
 }
+.side-item:hover .delete-pin,.side-item:focus-within .delete-pin{opacity:.75}
 .side-item .delete-pin:hover{background:rgba(196,220,203,.14);opacity:1}
 .empty-list{padding:5px 0;color:#b9cabe;font-size:13px;font-style:italic}
 .new-note{
-  margin:12px 0 0;border:1px solid rgba(87,214,141,.42);border-radius:9px;
-  background:rgba(87,214,141,.1);color:#a4e8ba;cursor:pointer;
-  font-size:14px;font-weight:700;padding:10px 13px;transition:background .15s
+  flex:none;width:34px;height:34px;margin:0 0 6px;border:0;border-radius:50%;
+  background:transparent;color:#a4e8ba;cursor:pointer;
+  font-size:28px;font-weight:400;line-height:1;padding:0;transition:background .15s
 }
 .new-note:hover{background:rgba(87,214,141,.18)}
 
@@ -162,6 +158,25 @@ textarea.large{min-height:48px;height:48px}
   position:absolute;z-index:0;left:12px;bottom:0;width:160px;height:200px;
   object-fit:contain;pointer-events:none
 }
+.merge-confirm-backdrop{
+  position:fixed;inset:0;z-index:20;display:grid;place-items:center;
+  padding:18px;background:rgba(8,17,12,.62)
+}
+.merge-confirm-dialog{
+  width:min(390px,calc(100vw - 36px));padding:22px;
+  border:1px solid var(--line);border-radius:12px;background:var(--panel-2);
+  color:var(--text);box-shadow:0 16px 45px rgba(0,0,0,.35)
+}
+.merge-confirm-dialog h3{margin:0 0 8px;font-size:19px}
+.merge-confirm-dialog p{margin:0 0 18px;line-height:1.45}
+.merge-confirm-actions{display:flex;justify-content:flex-end;gap:8px}
+.merge-confirm-actions button{
+  border:1px solid transparent;border-radius:7px;padding:8px 14px;
+  cursor:pointer;font-weight:700
+}
+.merge-confirm-actions button:first-child{background:transparent;border-color:var(--line);color:var(--text)}
+.merge-confirm-actions button:last-child{background:var(--green);color:#fff}
+.merge-confirm-actions button:focus-visible{outline:2px solid var(--green);outline-offset:2px}
 
 .note-editor{display:flex;flex-direction:column;height:100%;max-width:900px;margin:auto}
 .note-editor input{margin-bottom:10px;height:42px;padding:9px 12px;font-size:18px;font-weight:600}
@@ -174,6 +189,9 @@ textarea.large{min-height:48px;height:48px}
   border-radius:6px;background:transparent;color:var(--text);cursor:pointer
 }
 .note-toolbar button:hover,.font-size-control select:hover{background:rgba(52,123,85,.12);border-color:rgba(52,123,85,.22)}
+.note-toolbar .table-cell-action{display:grid;place-items:center;padding:5px}
+.note-toolbar .table-cell-action svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.table-cell-status{margin-left:auto;color:var(--muted);font-size:11px}
 .font-size-control{display:flex;align-items:center;gap:5px;margin-left:4px;color:var(--muted);font-size:12px;font-weight:600}
 .font-size-control select{border-color:var(--line);background:var(--input)}
 .table-tool{position:relative}
@@ -206,9 +224,10 @@ textarea.large{min-height:48px;height:48px}
 .note-content [data-size="large"]{font-size:1.25em}
 .note-content table{width:100%;border-collapse:collapse;margin:8px 0}
 .note-content th,.note-content td{min-width:40px;height:34px;padding:6px 8px;border:1px solid var(--line);text-align:left;position:relative}
-.table-resize-handle{position:absolute;z-index:2;display:block;touch-action:none}
-.column-resize-handle{top:0;right:-4px;bottom:0;width:8px;cursor:col-resize}
-.row-resize-handle{right:0;bottom:-4px;left:0;height:8px;cursor:row-resize}
+.note-content .note-cell-selected{background-color:rgba(87,214,141,.2);box-shadow:inset 0 0 0 1px rgba(52,123,85,.48)}
+.table-resize-handle{position:absolute;z-index:3;display:block;touch-action:none}
+.column-resize-handle{top:0;right:-5px;bottom:0;width:10px;cursor:col-resize}
+.row-resize-handle{right:0;bottom:-5px;left:0;height:10px;cursor:row-resize}
 .table-resize-handle:hover{background:rgba(52,123,85,.24)}
 
 @media(max-width:850px){
