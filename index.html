@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My DokiDoki</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Nunito+Sans:wght@400;500;600;700;800&family=Rubik+Wet+Paint&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-mark"><img src="icons/dokidoki%20logo.png" alt=""></div>
+        <div class="brand-text">My <span>DokiDoki</span></div>
+      </div>
+
+      <div class="side-section">
+        <button class="section-toggle" data-section="pinned">
+          <span>Pinned Docs</span><span class="chevron">⌄</span>
+        </button>
+        <div class="section-list" id="pinnedList"></div>
+      </div>
+
+      <div class="side-section">
+        <button class="section-toggle" data-section="notes">
+          <span>Notes</span><span class="chevron">⌄</span>
+        </button>
+        <div class="section-list" id="notesList"></div>
+        <button class="new-note" id="newNote">+ Note</button>
+      </div>
+    </aside>
+
+    <div class="sidebar-divider">
+      <button id="sidebarToggle" title="Collapse sidebar">‹</button>
+    </div>
+
+    <main class="workspace">
+      <div class="tabs">
+        <button class="tab active" data-template="dplate">DPLATE</button>
+        <button class="tab" data-template="discplate">DISCPLATE</button>
+        <button class="tab" data-template="soul">SOUL</button>
+      </div>
+
+      <section class="document-panel" id="documentPanel"></section>
+    </main>
+  </div>
+
+  <div class="modal-backdrop hidden" id="modalBackdrop">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" aria-describedby="modalText">
+      <div class="modal-content">
+        <h3 id="modalTitle">You sure ’bout that?</h3>
+        <p id="modalText"></p>
+        <div class="modal-actions">
+          <button class="modal-cancel" id="modalCancel">Nah, keep it</button>
+          <button class="modal-confirm" id="modalConfirm">Yeah, wipe it</button>
+        </div>
+      </div>
+      <img class="modal-peeker" src="you%20sure.png" alt="A character giving a skeptical look">
+    </div>
+  </div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
