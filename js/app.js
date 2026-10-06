@@ -13,6 +13,7 @@ const state = {
 };
 
 let savedNoteRange=null;
+let pendingNoteMerge=null;
 
 function emptyDraft(){
   return {
@@ -143,6 +144,32 @@ function sanitizeNoteHtml(html){
           ? ` data-row-heights="${rows.join(",")}"` : "";
         return `<table${widthValue}${rowValue}>${content}</table>`;
       }
+      if(child.tagName==="TD" || child.tagName==="TH"){
+        const rowSpan=Number(child.rowSpan),colSpan=Number(child.colSpan);
+        const rowValue=rowSpan>1 && rowSpan<=100 ? ` rowspan="${rowSpan}"` : "";
+        const colValue=colSpan>1 && colSpan<=100 ? ` colspan="${colSpan}"` : "";
+        let mergedValue="";
+        if(child.dataset.mergeOriginals){
+          try{
+            const originals=JSON.parse(child.dataset.mergeOriginals);
+            if(Number.isInteger(originals.rows) && originals.rows>0 && originals.rows<=100 &&
+              Number.isInteger(originals.cols) && originals.cols>0 && originals.cols<=100 &&
+              Array.isArray(originals.cells) && originals.cells.length===originals.rows &&
+              originals.cells.every(row=>Array.isArray(row) && row.length===originals.cols &&
+                row.every(cell=>cell && ["TD","TH"].includes(cell.tag) && typeof cell.html==="string"))){
+              const cleanOriginals=originals.cells.map(row=>row.map(cell=>{
+                const original=document.createElement("div");
+                original.innerHTML=cell.html;
+                return {tag:cell.tag,html:clean(original)};
+              }));
+              mergedValue=` data-merge-originals="${esc(JSON.stringify({...originals,cells:cleanOriginals}))}"`;
+            }
+          }catch(error){
+            console.warn("Unable to preserve merged note table cells.",error);
+          }
+        }
+        return `<${child.tagName.toLowerCase()}${rowValue}${colValue}${mergedValue}>${content}</${child.tagName.toLowerCase()}>`;
+      }
       return `<${child.tagName.toLowerCase()}>${content}</${child.tagName.toLowerCase()}>`;
     }).join("");
   }
@@ -184,7 +211,6 @@ function renderSidebar(){
   const p=document.getElementById("pinnedList");
   p.innerHTML=state.sections.pinned ? (state.pins.length ? state.pins.map(doc=>`
     <div class="side-item pin-item" data-pin="${doc.id}">
-      <span class="item-icon">P</span>
       <span class="item-title">${doc.template==="soul"?"SOUL":`Car# ${esc(doc.carNumber || "Untitled")}`}</span>
       <button class="delete-pin" data-delete-pin="${doc.id}" title="Delete pinned doc" aria-label="Delete pinned doc">×</button>
     </div>`).join("") : `<div class="empty-list">No pinned docs yet</div>`) : "";
@@ -192,7 +218,6 @@ function renderSidebar(){
   const n=document.getElementById("notesList");
   n.innerHTML=state.sections.notes ? (state.notes.length ? state.notes.map(note=>`
     <div class="side-item note-item" data-note="${note.id}">
-      <span class="item-icon">N</span>
       <span class="item-title">${esc(note.title || "Note")}</span>
       <button class="delete-pin" data-delete-note="${note.id}" title="Delete note" aria-label="Delete note">×</button>
     </div>`).join("") : `<div class="empty-list">No notes yet</div>`) : "";
@@ -200,6 +225,7 @@ function renderSidebar(){
   document.querySelectorAll(".section-toggle").forEach(btn=>{
     const key=btn.dataset.section;
     btn.classList.toggle("collapsed",!state.sections[key]);
+    btn.closest(".side-section").classList.toggle("collapsed",!state.sections[key]);
   });
 }
 function renderTabs(){
@@ -402,6 +428,10 @@ function openNote(id){
           </div>
         </div>
       </div>
+      <button type="button" class="table-cell-action" id="mergeNoteCells" title="Merge Cells" aria-label="Merge Cells">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="1.5"/><path d="M9 4v5m6-5v5M3 9h18M3 15h18M9 20v-5m6 5v-5M9 12h6m-2-2 2 2-2 2"/></svg>
+      </button>
+      <span class="table-cell-status" id="tableCellStatus" role="status" aria-live="polite"></span>
     </div>
     <div class="note-content" id="noteContent" contenteditable="true" role="textbox" aria-label="Note content" aria-multiline="true" data-placeholder="Write your note..."></div>
   </div>`;
@@ -417,8 +447,14 @@ function openNote(id){
     note.content=content.innerText;
     persist();
   };
-  content.onkeyup=saveNoteSelection;
-  content.onmouseup=saveNoteSelection;
+  content.onkeyup=()=>{
+    saveNoteSelection();
+    updateNoteCellHighlight(content);
+  };
+  content.onmouseup=()=>{
+    saveNoteSelection();
+    updateNoteCellHighlight(content);
+  };
   content.onfocus=saveNoteSelection;
   document.querySelectorAll("[data-note-command]").forEach(button=>{
     button.onmousedown=e=>e.preventDefault();
@@ -471,6 +507,54 @@ function openNote(id){
     };
   });
   picker.onmouseleave=()=>clearTableSizeHighlight(picker);
+  const mergeButton=document.getElementById("mergeNoteCells");
+  const tableStatus=document.getElementById("tableCellStatus");
+  mergeButton.onmousedown=e=>{saveNoteSelection();e.preventDefault()};
+  mergeButton.onclick=()=>{
+    if(!restoreNoteSelection(content)){
+      tableStatus.textContent="Select cells to merge.";
+      return;
+    }
+    const selection=document.getSelection();
+    const selectedCells=selection ? cellsBetweenSelectionEndpoints(content,selection) : [];
+    if(selectedCells.length===1 && (selectedCells[0].rowSpan>1 || selectedCells[0].colSpan>1)){
+      if(!unmergeNoteCell(selectedCells[0])){
+        tableStatus.textContent="This merged cell cannot be unmerged.";
+        return;
+      }
+      tableStatus.textContent="";
+      content.dispatchEvent(new Event("input",{bubbles:true}));
+      saveNoteSelection();
+      return;
+    }
+    const plan=makeNoteMergePlan(selectedCells);
+    if(!plan){
+      tableStatus.textContent="Select a rectangular group of table cells.";
+      return;
+    }
+    if(plan.cells.slice(1).some(noteCellHasContent)){
+      pendingNoteMerge={plan,content,button:mergeButton};
+      document.getElementById("mergeConfirmBackdrop").classList.remove("hidden");
+      document.getElementById("mergeConfirmCancel").focus();
+      return;
+    }
+    applyNoteMerge(plan,content);
+    tableStatus.textContent="";
+  };
+  content.addEventListener("keydown",event=>{
+    if(!["Delete","Backspace"].includes(event.key))return;
+    const selection=document.getSelection();
+    if(!selection || selection.isCollapsed)return;
+    const cells=cellsBetweenSelectionEndpoints(content,selection);
+    if(cells.length<2)return;
+    event.preventDefault();
+    const result=deleteSelectedNoteRowsOrColumns(content,selection);
+    if(!result){
+      tableStatus.textContent="Select a whole row or whole column to delete it.";
+      return;
+    }
+    tableStatus.textContent="";
+  });
 }
 function highlightTableSize(picker,rows,cols){
   const r=Number(rows),c=Number(cols);
@@ -492,7 +576,7 @@ function makeNoteTable(rows,cols){
 function initializeNoteTables(editor){
   editor.querySelectorAll("table").forEach(table=>{
     const rows=Array.from(table.rows);
-    const cols=Math.max(0,...rows.map(row=>row.cells.length));
+    const cols=Math.max(0,...rows.map(row=>Array.from(row.cells).reduce((sum,cell)=>sum+cell.colSpan,0)));
     if(!cols || !rows.length) return;
 
     let colgroup=table.querySelector(":scope > colgroup");
@@ -512,31 +596,256 @@ function initializeNoteTables(editor){
     if(table.style.width!=="100%") table.style.width="100%";
 
     const heights=(table.dataset.rowHeights || "").split(",").map(Number);
+    const {positions}=noteTableGrid(table);
     rows.forEach((row,rowIndex)=>{
       if(Number.isFinite(heights[rowIndex]) && heights[rowIndex]>=30){
         const height=`${heights[rowIndex]}px`;
         if(row.style.height!==height) row.style.height=height;
       }
-      const cells=Array.from(row.cells);
-      cells.forEach((cell,colIndex)=>{
+    });
+    rows.forEach(row=>{
+      Array.from(row.cells).forEach(cell=>{
+        const position=positions.get(cell);
+        if(!position)return;
+        const endColumn=position.column+position.colSpan-1;
+        const endRow=position.row+position.rowSpan-1;
         let columnHandle=cell.querySelector(":scope > .column-resize-handle");
-        if(colIndex<cells.length-1){
-          if(!columnHandle) addTableResizeHandle(cell,"column",colIndex);
-          else columnHandle.dataset.index=String(colIndex);
+        if(endColumn<cols-1){
+          if(!columnHandle) addTableResizeHandle(cell,"column",endColumn);
+          else columnHandle.dataset.index=String(endColumn);
         }else if(columnHandle){
           columnHandle.remove();
         }
+        let rowHandle=cell.querySelector(":scope > .row-resize-handle");
+        if(endRow<rows.length-1){
+          if(!rowHandle) addTableResizeHandle(cell,"row",endRow);
+          else rowHandle.dataset.index=String(endRow);
+        }else if(rowHandle){
+          rowHandle.remove();
+        }
       });
-      cells.forEach(cell=>{
-        if(cell!==cells[cells.length-1]) cell.querySelectorAll(":scope > .row-resize-handle").forEach(handle=>handle.remove());
-      });
-      if(cells.length){
-        let rowHandle=cells[cells.length-1].querySelector(":scope > .row-resize-handle");
-        if(!rowHandle) addTableResizeHandle(cells[cells.length-1],"row",rowIndex);
-        else rowHandle.dataset.index=String(rowIndex);
-      }
     });
   });
+}
+function noteTableGrid(table){
+  const rows=Array.from(table.rows);
+  const grid=rows.map(()=>[]);
+  const positions=new Map();
+  rows.forEach((row,rowIndex)=>{
+    let column=0;
+    Array.from(row.cells).forEach(cell=>{
+      while(grid[rowIndex][column]) column++;
+      const rowSpan=Math.max(1,cell.rowSpan),colSpan=Math.max(1,cell.colSpan);
+      positions.set(cell,{row:rowIndex,column,rowSpan,colSpan});
+      for(let r=rowIndex;r<Math.min(rows.length,rowIndex+rowSpan);r++){
+        for(let c=column;c<column+colSpan;c++) grid[r][c]=cell;
+      }
+      column+=colSpan;
+    });
+  });
+  return {rows,grid,positions};
+}
+function cellsBetweenSelectionEndpoints(editor,selection){
+  const getCell=node=>{
+    const element=node?.nodeType===Node.ELEMENT_NODE ? node : node?.parentElement;
+    return element?.closest("td,th") || null;
+  };
+  const anchor=getCell(selection.anchorNode),focus=getCell(selection.focusNode);
+  const table=anchor?.closest("table");
+  if(!table || focus?.closest("table")!==table)return [];
+  const {grid,positions}=noteTableGrid(table);
+  const start=positions.get(anchor),end=positions.get(focus);
+  if(!start || !end)return [];
+  const top=Math.min(start.row,end.row),bottom=Math.max(start.row,end.row);
+  const left=Math.min(start.column,end.column),right=Math.max(start.column,end.column);
+  const cells=new Set();
+  for(let row=top;row<=bottom;row++){
+    for(let column=left;column<=right;column++){
+      const cell=grid[row]?.[column];
+      if(!cell)return [];
+      cells.add(cell);
+    }
+  }
+  return Array.from(cells);
+}
+function updateNoteCellHighlight(editor){
+  editor.querySelectorAll("td.note-cell-selected,th.note-cell-selected").forEach(cell=>{
+    cell.classList.remove("note-cell-selected");
+  });
+  const selection=document.getSelection();
+  if(!selection || !selection.rangeCount)return;
+  cellsBetweenSelectionEndpoints(editor,selection).forEach(cell=>cell.classList.add("note-cell-selected"));
+}
+function makeNoteMergePlan(cells){
+  if(cells.length<2)return false;
+  const table=cells[0].closest("table");
+  if(!table || cells.some(cell=>cell.closest("table")!==table))return false;
+  const {rows,grid,positions}=noteTableGrid(table);
+  const selected=new Set(cells);
+  const cellPositions=cells.map(cell=>positions.get(cell));
+  if(cellPositions.some(position=>!position || position.rowSpan!==1 || position.colSpan!==1))return false;
+  const top=Math.min(...cellPositions.map(position=>position.row));
+  const bottom=Math.max(...cellPositions.map(position=>position.row));
+  const left=Math.min(...cellPositions.map(position=>position.column));
+  const right=Math.max(...cellPositions.map(position=>position.column));
+  const rectangle=[];
+  for(let row=top;row<=bottom;row++){
+    for(let column=left;column<=right;column++){
+      const cell=grid[row]?.[column];
+      if(!cell || !selected.has(cell) || positions.get(cell).row!==row || positions.get(cell).column!==column)return false;
+      rectangle.push(cell);
+    }
+  }
+  if(rectangle.length!==selected.size)return false;
+  return {master:grid[top][left],cells:rectangle,rows:bottom-top+1,cols:right-left+1};
+}
+function deleteSelectedNoteRowsOrColumns(editor,selection){
+  const cells=cellsBetweenSelectionEndpoints(editor,selection);
+  if(!cells.length)return false;
+  const table=cells[0].closest("table");
+  if(!table || cells.some(cell=>cell.closest("table")!==table))return false;
+  const {rows,grid,positions}=noteTableGrid(table);
+  const cellPositions=cells.map(cell=>positions.get(cell));
+  if(cellPositions.some(position=>!position))return false;
+  const top=Math.min(...cellPositions.map(position=>position.row));
+  const bottom=Math.max(...cellPositions.map(position=>position.row));
+  const left=Math.min(...cellPositions.map(position=>position.column));
+  const right=Math.max(...cellPositions.map(position=>position.column));
+  const cols=Math.max(0,...grid.map(row=>row.length));
+  const isWholeRows=left===0 && right===cols-1;
+  const isWholeColumns=top===0 && bottom===rows.length-1;
+  if(!isWholeRows && !isWholeColumns)return false;
+
+  if(isWholeRows){
+    const removedRows=new Set(Array.from({length:bottom-top+1},(_,index)=>top+index));
+    if([...positions.values()].some(position=>
+      (position.rowSpan>1 || position.colSpan>1) &&
+      Array.from({length:position.rowSpan},(_,index)=>position.row+index).some(row=>removedRows.has(row))
+    ))return false;
+    const heights=(table.dataset.rowHeights || "").split(",").map(Number);
+    rows.slice(top,bottom+1).forEach(row=>row.remove());
+    const remainingHeights=heights.filter((_,index)=>!removedRows.has(index));
+    table.dataset.rowHeights=remainingHeights.join(",");
+  }else{
+    if([...positions.values()].some(position=>
+      (position.rowSpan>1 || position.colSpan>1) &&
+      position.column<=right && position.column+position.colSpan-1>=left
+    ))return false;
+    rows.forEach(row=>{
+      for(let column=right;column>=left;column--) row.deleteCell(column);
+    });
+    const colgroup=table.querySelector(":scope > colgroup");
+    if(colgroup){
+      for(let column=right;column>=left;column--) colgroup.children[column]?.remove();
+    }
+    const widths=(table.dataset.colWidths || "").split(",").map(Number);
+    const remainingWidths=widths.filter((_,index)=>index<left || index>right);
+    const total=remainingWidths.reduce((sum,width)=>sum+width,0);
+    table.dataset.colWidths=remainingWidths.map(width=>(width/total*100).toFixed(2)).join(",");
+  }
+
+  if(table.rows.length===0 || table.rows[0].cells.length===0){
+    table.remove();
+    if(!editor.textContent.trim() && !editor.querySelector("table")){
+      editor.innerHTML="";
+      editor.focus();
+    }
+  }else{
+    initializeNoteTables(editor);
+    const nextCell=rows[Math.min(top,rows.length-1)]?.cells[Math.min(left,rows[0]?.cells.length-1)];
+    if(nextCell){
+      const range=document.createRange();
+      range.selectNodeContents(nextCell);
+      range.collapse(false);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+  }
+  updateNoteCellHighlight(editor);
+  editor.dispatchEvent(new Event("input",{bubbles:true}));
+  saveNoteSelection();
+  return true;
+}
+function noteCellHasContent(cell){
+  const content=cell.cloneNode(true);
+  content.querySelectorAll(".table-resize-handle").forEach(handle=>handle.remove());
+  return content.textContent.trim()!=="";
+}
+function applyNoteMerge(plan,editor){
+  if(!plan.cells.every(cell=>cell.isConnected))return false;
+  plan.master.rowSpan=plan.rows;
+  plan.master.colSpan=plan.cols;
+  plan.cells.filter(cell=>cell!==plan.master).forEach(cell=>cell.remove());
+  const selection=document.getSelection();
+  const range=document.createRange();
+  range.selectNodeContents(plan.master);
+  range.collapse(false);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  updateNoteCellHighlight(editor);
+  document.getElementById("mergeConfirmBackdrop").classList.add("hidden");
+  pendingNoteMerge=null;
+  editor.dispatchEvent(new Event("input",{bubbles:true}));
+  saveNoteSelection();
+  return true;
+}
+function unmergeNoteCell(master){
+  let originals;
+  if(master.dataset.mergeOriginals){
+    try{
+      originals=JSON.parse(master.dataset.mergeOriginals);
+    }catch(error){
+      console.warn("Unable to restore merged note table cells.",error);
+      return false;
+    }
+  }
+  if(!originals){
+    originals={
+      rows:master.rowSpan,
+      cols:master.colSpan,
+      cells:Array.from({length:master.rowSpan},(_,rowIndex)=>
+        Array.from({length:master.colSpan},(_,columnIndex)=>({
+          tag:master.tagName,
+          html:rowIndex===0 && columnIndex===0 ? sanitizeNoteHtml(master.innerHTML) : ""
+        }))
+      )
+    };
+  }
+  if(!Number.isInteger(originals.rows) || originals.rows<1 ||
+    !Number.isInteger(originals.cols) || originals.cols<1 ||
+    !Array.isArray(originals.cells) || originals.cells.length!==originals.rows ||
+    originals.cells.some(row=>!Array.isArray(row) || row.length!==originals.cols ||
+      row.some(cell=>!cell || !["TD","TH"].includes(cell.tag) || typeof cell.html!=="string"))) return false;
+  const table=master.closest("table");
+  const tableRow=master.parentElement;
+  const tableRows=Array.from(table.rows);
+  const top=tableRows.indexOf(tableRow);
+  const {positions}=noteTableGrid(table);
+  const position=positions.get(master);
+  if(!position || position.row!==top)return false;
+  const left=position.column,right=left+originals.cols-1;
+  master.remove();
+  for(let rowOffset=0;rowOffset<originals.rows;rowOffset++){
+    const row=tableRows[top+rowOffset];
+    if(!row)return false;
+    const followingCell=Array.from(row.cells).find(cell=>positions.get(cell)?.column>right);
+    for(let columnOffset=0;columnOffset<originals.cols;columnOffset++){
+      const original=originals.cells[rowOffset][columnOffset];
+      const cell=document.createElement(original.tag.toLowerCase());
+      cell.innerHTML=sanitizeNoteHtml(original.html);
+      row.insertBefore(cell,followingCell || null);
+    }
+  }
+  const selection=document.getSelection();
+  const firstCell=tableRows[top].cells[left];
+  if(firstCell){
+    const range=document.createRange();
+    range.selectNodeContents(firstCell);
+    range.collapse(false);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+  return true;
 }
 function addTableResizeHandle(cell,axis,index){
   const handle=document.createElement("span");
@@ -733,5 +1042,34 @@ document.getElementById("sidebarToggle").onclick=()=>{
 document.getElementById("newNote").onclick=createNote;
 document.getElementById("modalCancel").onclick=closeModal;
 document.getElementById("modalBackdrop").addEventListener("click",e=>{if(e.target.id==="modalBackdrop")closeModal()});
+document.getElementById("mergeConfirmCancel").onclick=()=>{
+  const pending=pendingNoteMerge;
+  pendingNoteMerge=null;
+  document.getElementById("mergeConfirmBackdrop").classList.add("hidden");
+  pending?.button.focus();
+};
+document.getElementById("mergeConfirmProceed").onclick=()=>{
+  const pending=pendingNoteMerge;
+  pendingNoteMerge=null;
+  document.getElementById("mergeConfirmBackdrop").classList.add("hidden");
+  if(pending && applyNoteMerge(pending.plan,pending.content)){
+    document.getElementById("tableCellStatus").textContent="";
+  }else if(pending){
+    document.getElementById("tableCellStatus").textContent="The selected cells are no longer available.";
+  }
+  pending?.button.focus();
+};
+document.getElementById("mergeConfirmBackdrop").addEventListener("click",e=>{
+  if(e.target.id==="mergeConfirmBackdrop") document.getElementById("mergeConfirmCancel").click();
+});
+document.addEventListener("keydown",e=>{
+  if(e.key==="Escape" && !document.getElementById("mergeConfirmBackdrop").classList.contains("hidden")){
+    document.getElementById("mergeConfirmCancel").click();
+  }
+});
+document.addEventListener("selectionchange",()=>{
+  const editor=document.getElementById("noteContent");
+  if(editor)updateNoteCellHighlight(editor);
+});
 
 load();
