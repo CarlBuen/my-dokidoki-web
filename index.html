@@ -18,18 +18,22 @@
       </div>
 
       <div class="side-section">
-        <button class="section-toggle" data-section="pinned">
-          <span>Pinned Docs</span><span class="chevron">⌄</span>
-        </button>
+        <div class="section-heading">
+          <button class="section-toggle" data-section="pinned">
+            <span class="chevron">⌄</span><span>Pinned Docs</span>
+          </button>
+        </div>
         <div class="section-list" id="pinnedList"></div>
       </div>
 
       <div class="side-section">
-        <button class="section-toggle" data-section="notes">
-          <span>Notes</span><span class="chevron">⌄</span>
-        </button>
+        <div class="section-heading">
+          <button class="section-toggle" data-section="notes">
+            <span class="chevron">⌄</span><span>Notes</span>
+          </button>
+          <button class="new-note" id="newNote" title="Add note" aria-label="Add note">+</button>
+        </div>
         <div class="section-list" id="notesList"></div>
-        <button class="new-note" id="newNote">+ Note</button>
       </div>
     </aside>
 
@@ -59,6 +63,17 @@
         </div>
       </div>
       <img class="modal-peeker" src="you%20sure.png" alt="A character giving a skeptical look">
+    </div>
+  </div>
+
+  <div class="merge-confirm-backdrop hidden" id="mergeConfirmBackdrop">
+    <div class="merge-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="mergeConfirmTitle" aria-describedby="mergeConfirmText">
+      <h3 id="mergeConfirmTitle">Merge cells?</h3>
+      <p id="mergeConfirmText">Only the value from the top-left cell will be kept. Data in the other selected cells will be removed.</p>
+      <div class="merge-confirm-actions">
+        <button type="button" id="mergeConfirmCancel">Cancel</button>
+        <button type="button" id="mergeConfirmProceed">Merge</button>
+      </div>
     </div>
   </div>
 
