@@ -928,13 +928,26 @@ function openClear(){
 }
 function closeModal(){document.getElementById("modalBackdrop").classList.add("hidden")}
 
+function boldUnicode(value){
+  return Array.from(String(value),character=>{
+    const code=character.codePointAt(0);
+    if(code>=65 && code<=90) return String.fromCodePoint(0x1D400+code-65);
+    if(code>=97 && code<=122) return String.fromCodePoint(0x1D41A+code-97);
+    if(code>=48 && code<=57) return String.fromCodePoint(0x1D7CE+code-48);
+    return character;
+  }).join("");
+}
+function formatGeo(value){
+  return String(value || "").trim().replace(/\s+/g,"_").toUpperCase();
+}
+
 function outputLines(){
   const d=state.draft;
   if(state.activeTemplate==="soul"){
     return [
       ["DESCRIPTION OF THE ISSUE:",d.description,"block"],
       ["TROUBLESHOOTING ATTEMPTED:",d.troubleshooting,"block"],
-      ["GEO:",d.geo,"inline"],
+      ["GEO:",formatGeo(d.geo),"inline"],
       ["TASK:",d.task,"block"],
       ["SHIFT:",d.shift,"block"],
       ["CAR:","N/A","inline"],
@@ -952,7 +965,7 @@ function outputLines(){
       ["Troubleshooting attempted:",d.troubleshooting,"block"],
       ["NRR (Not Ready Reasons):",d.nrr,"block"],
       ["Log File with TIMESTAMP:",d.logFile,"block"],
-      ["GEO:",d.geo,"inline"],
+      ["GEO:",formatGeo(d.geo),"inline"],
       ["Mission Information:",d.missionType,"inline"],
       ["Vehicle type:",d.vehiclePlatform,"inline"],
       ["Location of Vehicle:",d.vehicleLocation,"inline"],
@@ -962,7 +975,7 @@ function outputLines(){
     ];
   }
   return [
-    ["DESCRIPTION OF THE ISSUE:",d.description,"inline"],
+    ["DESCRIPTION OF THE ISSUE:",d.description,"block"],
     ["Vehicle SW:",d.vehicleSW,"inline"],
     ["Vehicle Assignment:",d.vehicleAssignment,"inline"],
     ["Vehicle Platform:",d.vehiclePlatform,"inline"],
@@ -971,12 +984,12 @@ function outputLines(){
     ["When did the problem happen:",d.problemWhen,"inline"],
     ["What was the car doing:",d.carDoing,"inline"],
     ["TROUBLESHOOTING ATTEMPTED:",null,"heading"],
-    ["Previous actions from Ops or Tech:",d.previousActions,"block"],
-    ["Troubleshooting steps done by ES:",d.troubleshooting,"block"],
+    ["Previous actions from Ops or Tech:",d.previousActions,"list"],
+    ["Troubleshooting steps done by ES:",d.troubleshooting,"list"],
     ["Recommendations / Suggestions provided by ES:",d.recommendations,"inline"],
     ["NRR:",d.nrr,"inline"],
     ["LOG FILE WITH TIMESTAMP:",d.logFile,"inline"],
-    ["Geo:",d.geo,"inline"],
+    ["GEO:",formatGeo(d.geo),"inline"],
     ["End result:",d.endResult,"inline"],
     ["CSAT:",d.csat,"inline"],
     ["LDAP:",d.ldap,"inline"],
@@ -987,16 +1000,38 @@ function outputLines(){
 
 function copyCurrent(){
   const lines=outputLines();
+  const bulletItems=value=>String(value || "").split(/\r?\n/)
+    .map(line=>line.trim())
+    .filter(Boolean)
+    .map(line=>line.replace(/^(?:[•*-]\s*)+/,""));
   const plain=lines.map(([label,value,type])=>{
-    if(type==="heading") return label;
-    if(type==="block") return `${label}\n${value||""}`;
-    return `${label} ${value||""}`;
+    const boldLabel=boldUnicode(label);
+    if(type==="heading") return boldLabel;
+    if(type==="block") return value ? `${boldLabel}\n${value}` : boldLabel;
+    if(type==="list"){
+      const items=bulletItems(value);
+      return [boldLabel,...items.map(item=>`• ${item}`)].join("\n");
+    }
+    return value ? `${boldLabel} ${value}` : boldLabel;
   }).join("\n\n");
 
   const html=lines.map(([label,value,type])=>{
-    if(type==="heading") return `<p><strong>${esc(label)}</strong></p>`;
-    if(type==="block") return `<p><strong>${esc(label)}</strong><br>${esc(value||"").replace(/\n/g,"<br>")}</p>`;
-    return `<p><strong>${esc(label)}</strong> ${esc(value||"").replace(/\n/g,"<br>")}</p>`;
+    const paragraphStyle='style="margin:0 0 12px 0;line-height:1.4"';
+    const boldLabel=esc(boldUnicode(label));
+    if(type==="heading") return `<p ${paragraphStyle}><strong>${boldLabel}</strong></p>`;
+    if(type==="block"){
+      const content=value ? `<br>${esc(value).replace(/\r?\n/g,"<br>")}` : "";
+      return `<p ${paragraphStyle}><strong>${boldLabel}</strong>${content}</p>`;
+    }
+    if(type==="list"){
+      const items=bulletItems(value);
+      const list=items.length
+        ? `<ul style="margin:4px 0 0;padding-left:24px">${items.map(item=>`<li>${esc(item)}</li>`).join("")}</ul>`
+        : "";
+      return `<div ${paragraphStyle}><strong>${boldLabel}</strong>${list}</div>`;
+    }
+    const content=value ? ` ${esc(value).replace(/\r?\n/g,"<br>")}` : "";
+    return `<p ${paragraphStyle}><strong>${boldLabel}</strong>${content}</p>`;
   }).join("");
 
   navigator.clipboard.write([
