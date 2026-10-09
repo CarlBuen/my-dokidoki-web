@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>My DokiDoki</title>
+  <title>Basta</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Nunito+Sans:wght@400;500;600;700;800&family=Rubik+Wet+Paint&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
     <aside class="sidebar" id="sidebar">
       <div class="brand">
         <div class="brand-mark"><img src="icons/dokidoki%20logo.png" alt=""></div>
-        <div class="brand-text">My <span>DokiDoki</span></div>
+        <div class="brand-text">My <span>Basta</span></div>
       </div>
 
       <div class="side-section">
@@ -34,6 +34,33 @@
           <button class="new-note" id="newNote" title="Add note" aria-label="Add note">+</button>
         </div>
         <div class="section-list" id="notesList"></div>
+      </div>
+
+      <div class="sidebar-watermark" aria-hidden="true">
+        <div class="watermark-microprint">
+          <span>CREATED BY BOSS CARL · MY DOKIDOKI · CREATED BY BOSS CARL · MY DOKIDOKI ·</span>
+          <span>MY DOKIDOKI · CREATED BY BOSS CARL · MY DOKIDOKI · CREATED BY BOSS CARL ·</span>
+          <span>CREATED BY BOSS CARL · MY DOKIDOKI · CREATED BY BOSS CARL · MY DOKIDOKI ·</span>
+          <span>MY DOKIDOKI · CREATED BY BOSS CARL · MY DOKIDOKI · CREATED BY BOSS CARL ·</span>
+          <span>CREATED BY BOSS CARL · MY DOKIDOKI · CREATED BY BOSS CARL · MY DOKIDOKI ·</span>
+        </div>
+        <div class="watermark-microprint watermark-microprint-secondary">
+          <span>BOSS CARL · EST. WITH CARE · MY DOKIDOKI · BOSS CARL · EST. WITH CARE ·</span>
+          <span>MY DOKIDOKI · BOSS CARL · EST. WITH CARE · MY DOKIDOKI · BOSS CARL ·</span>
+          <span>BOSS CARL · EST. WITH CARE · MY DOKIDOKI · BOSS CARL · EST. WITH CARE ·</span>
+          <span>MY DOKIDOKI · BOSS CARL · EST. WITH CARE · MY DOKIDOKI · BOSS CARL ·</span>
+          <span>BOSS CARL · EST. WITH CARE · MY DOKIDOKI · BOSS CARL · EST. WITH CARE ·</span>
+        </div>
+      </div>
+
+      <div class="theme-picker-wrap">
+        <label for="themePicker">Theme</label>
+        <select id="themePicker" aria-label="Color theme">
+          <option value="forest">Forest</option>
+          <option value="ocean">Ocean</option>
+          <option value="lavender">Lavender</option>
+          <option value="sunset">Sunset</option>
+        </select>
       </div>
     </aside>
 
