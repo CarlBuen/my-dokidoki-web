@@ -3,6 +3,7 @@ const SELECT_HINT_VERSION = 1;
 
 const state = {
   activeTemplate: "dplate",
+  theme: "forest",
   sidebarCollapsed: false,
   sections: { pinned: true, notes: true },
   currentDocId: null,
@@ -85,11 +86,34 @@ const options = {
   endResult:["resolved","resolved_while_on_call","hand_off_to_tech","in_progress_pc_included","in_progress"]
 };
 
+const techDepots = {
+  "Los Angeles":["Granville (Liberty)","Santa Fe (W12)"],
+  "San Francisco":["Toland","Mission St","14 street","Pacific Ave"],
+  "Mountain View":["Rails - Robot Garage"],
+  Phoenix:["Mesa Service Center","3rd Street","EdgeConnex"],
+  Austin:["Stassney"],
+  Atlanta:["Plymouth"],
+  "San Antonio":["Eissenhauer"],
+  Orlando:["S Orange"],
+  Dallas:["WeWork / Mockingbird"],
+  Houston:["Cavalcade"],
+  Miami:["Terrace"],
+  Tokyo:["Minato / Jari"],
+  London:["Autonation - Willen Field"],
+  Nashville:["Harding"],
+  "Las Vegas":["Post Road"],
+  "Washington DC":["U-line Arena"],
+  "San Diego":["Anna Ave"]
+};
+
+const themes = ["forest","ocean","lavender","sunset"];
+
 function load(){
   try{
     const saved=JSON.parse(localStorage.getItem(STORAGE_KEY));
     if(saved) Object.assign(state,saved);
   }catch(e){}
+  if(!themes.includes(state.theme)) state.theme="forest";
   if(state.activeTemplate==="disconnected") state.activeTemplate="discplate";
   const savedDrafts=state.templateDrafts || {};
   state.templateDrafts={
@@ -202,16 +226,22 @@ function selectField(key,items,showTitleHint=true,hintTitle=""){
 }
 
 function render(){
+  applyTheme(state.theme);
   document.getElementById("sidebar").classList.toggle("collapsed",state.sidebarCollapsed);
   renderSidebar();
   renderTabs();
   renderPanel();
 }
+function applyTheme(theme){
+  document.documentElement.dataset.theme=themes.includes(theme) ? theme : "forest";
+  const picker=document.getElementById("themePicker");
+  if(picker) picker.value=document.documentElement.dataset.theme;
+}
 function renderSidebar(){
   const p=document.getElementById("pinnedList");
   p.innerHTML=state.sections.pinned ? (state.pins.length ? state.pins.map(doc=>`
     <div class="side-item pin-item" data-pin="${doc.id}">
-      <span class="item-title">${doc.template==="soul"?"SOUL":`Car# ${esc(doc.carNumber || "Untitled")}`}</span>
+      <span class="item-title">${String(doc.carNumber || "").trim() ? `Car# ${esc(String(doc.carNumber).trim())}` : esc(String(doc.template || "Document").toUpperCase())}</span>
       <button class="delete-pin" data-delete-pin="${doc.id}" title="Delete pinned doc" aria-label="Delete pinned doc">×</button>
     </div>`).join("") : `<div class="empty-list">No pinned docs yet</div>`) : "";
 
@@ -240,11 +270,25 @@ function renderPanel(){
     return;
   }
   panel.className="document-panel";
+  const techDepotGuide=state.activeTemplate==="dplate" ? `
+      <section class="tech-depot-guide" aria-live="polite">
+        <div class="tech-depot-heading">
+          <span class="tech-depot-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M19 10c0 5-7 11-7 11S5 15 5 10a7 7 0 1 1 14 0Z"/><circle cx="12" cy="10" r="2.5"/></svg>
+          </span>
+          <h2>DEPOT ROUTING</h2>
+          <span class="tech-depot-tag">GEO GUIDE</span>
+        </div>
+        <div id="techDepotInstruction"></div>
+      </section>` : "";
   const actions=`
     <div class="actions">
-      <button class="action-btn clear-btn" id="clearBtn" title="Clear" aria-label="Clear fields"><img src="icons/clear.png" alt=""></button>
-      <button class="action-btn pin-btn" id="pinBtn" title="Pin" aria-label="Pin document"><img src="icons/Pin.png" alt=""></button>
-      <button class="action-btn copy-btn" id="copyBtn" title="Copy" aria-label="Copy document"><img src="icons/copy.png" alt=""></button>
+      ${techDepotGuide}
+      <div class="action-buttons">
+        <button class="action-btn clear-btn" id="clearBtn" title="Clear" aria-label="Clear fields"><img src="icons/clear.png" alt=""></button>
+        <button class="action-btn pin-btn" id="pinBtn" title="Pin" aria-label="Pin document"><img src="icons/Pin.png" alt=""></button>
+        <button class="action-btn copy-btn" id="copyBtn" title="Copy" aria-label="Copy document"><img src="icons/copy.png" alt=""></button>
+      </div>
     </div>`;
   const carNumber=state.activeTemplate==="soul" ? "" : `
     <div class="dplate-top">
@@ -338,6 +382,7 @@ function bindPanel(){
   document.getElementById("clearBtn").onclick=openClear;
   document.getElementById("pinBtn").onclick=pinCurrent;
   document.getElementById("copyBtn").onclick=copyCurrent;
+  updateTechDepotGuide();
 }
 function onField(e){
   state.draft[e.target.dataset.key]=e.target.value;
@@ -350,7 +395,30 @@ function onField(e){
   }
   persist();
   if(e.target.tagName==="TEXTAREA") autoSize(e.target);
+  if(e.target.dataset.key==="geo") updateTechDepotGuide();
   renderSidebar();
+}
+function updateTechDepotGuide(){
+  const instruction=document.getElementById("techDepotInstruction");
+  if(!instruction)return;
+  const geo=String(state.draft.geo || "").trim();
+  if(!geo){
+    instruction.innerHTML='<p class="tech-depot-empty">Choose a GEO to see its assigned tech depot.</p>';
+    return;
+  }
+  const depots=techDepots[geo];
+  const depotContent=depots
+    ? depots.map(depot=>`<span class="tech-depot-location">${esc(depot)}</span>`).join("")
+    : '<span class="tech-depot-location unavailable">Depot not provided</span>';
+  instruction.innerHTML=`
+    <div class="tech-depot-geo">
+      <span class="tech-depot-label">GEOGRAPHY</span>
+      <strong>${esc(geo)}</strong>
+    </div>
+    <div class="tech-depot-destinations">
+      <span class="tech-depot-label">ASSIGNED DEPOT${depots?.length===1?"":"S"}</span>
+      <div class="tech-depot-locations">${depotContent}</div>
+    </div>`;
 }
 function autoSize(el){
   el.style.height="auto";
@@ -360,6 +428,24 @@ function autoSize(el){
 function autoSizeAll(){document.querySelectorAll("textarea").forEach(autoSize)}
 
 function makeId(){return Date.now().toString(36)+"-"+Math.random().toString(36).slice(2,9)}
+
+function preserveCurrentDraft(){
+  if(!["dplate","discplate","soul"].includes(state.activeTemplate)) return;
+  const data={...state.draft};
+  state.templateDrafts[state.activeTemplate]=data;
+  let doc=state.pins.find(item=>item.id===state.currentDocId);
+  if(doc){
+    doc.template=state.activeTemplate;
+    doc.data=data;
+    doc.carNumber=data.carNumber || "";
+    return;
+  }
+  state.currentDocId=null;
+  if(!Object.values(data).some(value=>String(value ?? "").trim())) return;
+  doc={id:makeId(),template:state.activeTemplate,carNumber:data.carNumber || "",data};
+  state.pins.push(doc);
+  state.currentDocId=doc.id;
+}
 
 function pinCurrent(){
   const doc={id:makeId(),template:state.activeTemplate,carNumber:state.draft.carNumber,data:{...state.draft}};
@@ -372,6 +458,7 @@ function pinCurrent(){
 function openPin(id){
   const doc=state.pins.find(x=>x.id===id);
   if(!doc)return;
+  preserveCurrentDraft();
   state.activeTemplate=["discplate","soul"].includes(doc.template) ? doc.template : "dplate";
   state.currentDocId=id;
   state.draft={...emptyDraftFor(state.activeTemplate),...doc.data};
@@ -983,12 +1070,15 @@ function outputLines(){
     ["Vehicle Location:",d.vehicleLocation,"inline"],
     ["When did the problem happen:",d.problemWhen,"inline"],
     ["What was the car doing:",d.carDoing,"inline"],
+    ["",null,"separator"],
     ["TROUBLESHOOTING ATTEMPTED:",null,"heading"],
     ["Previous actions from Ops or Tech:",d.previousActions,"list"],
     ["Troubleshooting steps done by ES:",d.troubleshooting,"list"],
     ["Recommendations / Suggestions provided by ES:",d.recommendations,"inline"],
+    ["",null,"separator"],
     ["NRR:",d.nrr,"inline"],
     ["LOG FILE WITH TIMESTAMP:",d.logFile,"inline"],
+    ["",null,"separator"],
     ["GEO:",formatGeo(d.geo),"inline"],
     ["End result:",d.endResult,"inline"],
     ["CSAT:",d.csat,"inline"],
@@ -1005,6 +1095,7 @@ function copyCurrent(){
     .filter(Boolean)
     .map(line=>line.replace(/^(?:[•*-]\s*)+/,""));
   const plain=lines.map(([label,value,type])=>{
+    if(type==="separator") return "\u00a0";
     const boldLabel=boldUnicode(label);
     if(type==="heading") return boldLabel;
     if(type==="block") return value ? `${boldLabel}\n${value}` : boldLabel;
@@ -1017,6 +1108,7 @@ function copyCurrent(){
 
   const html=lines.map(([label,value,type])=>{
     const paragraphStyle='style="margin:0 0 12px 0;line-height:1.4"';
+    if(type==="separator") return `<p ${paragraphStyle}><strong>&nbsp;</strong></p>`;
     const boldLabel=esc(boldUnicode(label));
     if(type==="heading") return `<p ${paragraphStyle}><strong>${boldLabel}</strong></p>`;
     if(type==="block"){
@@ -1074,6 +1166,11 @@ document.getElementById("sidebarToggle").onclick=()=>{
   state.sidebarCollapsed=!state.sidebarCollapsed;persist();
   document.getElementById("sidebar").classList.toggle("collapsed",state.sidebarCollapsed);
 };
+document.getElementById("themePicker").addEventListener("change",event=>{
+  state.theme=themes.includes(event.target.value) ? event.target.value : "forest";
+  applyTheme(state.theme);
+  persist();
+});
 document.getElementById("newNote").onclick=createNote;
 document.getElementById("modalCancel").onclick=closeModal;
 document.getElementById("modalBackdrop").addEventListener("click",e=>{if(e.target.id==="modalBackdrop")closeModal()});
