@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Nunito+Sans:wght@400;500;600;700;800&family=Rubik+Wet+Paint&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=20261013-abyss-theme-v2">
+  <link rel="stylesheet" href="css/style.css?v=20261018-stopwatch-controls-v3">
 </head>
 <body>
   <div class="app">
@@ -35,16 +35,6 @@
         <div class="section-list" id="bookmarksList"></div>
       </div>
 
-      <div class="side-section">
-        <div class="section-heading">
-          <button class="section-toggle" data-section="notes">
-            <span class="chevron" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="m4 6 4 4 4-4"/></svg></span><span>Notes</span>
-          </button>
-          <button class="new-note" id="newNote" title="Add note" aria-label="Add note">+</button>
-        </div>
-        <div class="section-list" id="notesList"></div>
-      </div>
-
       <div class="sidebar-watermark" aria-hidden="true">
         <div class="watermark-microprint">
           <span>CREATED BY BOSS CARL · MY DOKIDOKI · CREATED BY BOSS CARL · MY DOKIDOKI ·</span>
@@ -61,6 +51,23 @@
           <span>BOSS CARL · EST. WITH CARE · MY DOKIDOKI · BOSS CARL · EST. WITH CARE ·</span>
         </div>
       </div>
+
+      <section class="sidebar-tools" aria-label="Clock and stopwatch">
+        <div class="sidebar-stopwatch">
+          <span class="sidebar-tool-label">Stopwatch</span>
+          <div class="stopwatch-main">
+            <output id="stopwatchDisplay" class="stopwatch-display" aria-live="off">00:00.00</output>
+            <div class="stopwatch-controls">
+              <button id="stopwatchToggle" type="button">Start</button>
+              <button id="stopwatchReset" type="button" disabled>Reset</button>
+            </div>
+          </div>
+        </div>
+        <div class="sidebar-clock">
+          <span class="sidebar-tool-label">Local time</span>
+          <time id="sidebarClock" class="sidebar-clock-time">--:--:--</time>
+          </div>
+      </section>
 
       <div class="theme-picker-wrap">
         <label for="themePicker">Theme</label>
@@ -108,17 +115,6 @@
     </div>
   </div>
 
-  <div class="merge-confirm-backdrop hidden" id="mergeConfirmBackdrop">
-    <div class="merge-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="mergeConfirmTitle" aria-describedby="mergeConfirmText">
-      <h3 id="mergeConfirmTitle">Merge cells?</h3>
-      <p id="mergeConfirmText">Only the value from the top-left cell will be kept. Data in the other selected cells will be removed.</p>
-      <div class="merge-confirm-actions">
-        <button type="button" id="mergeConfirmCancel">Cancel</button>
-        <button type="button" id="mergeConfirmProceed">Merge</button>
-      </div>
-    </div>
-  </div>
-
-  <script src="js/app.js?v=20261013-abyss-theme"></script>
+  <script src="js/app.js?v=20261018-stopwatch-controls-v3"></script>
 </body>
 </html>
