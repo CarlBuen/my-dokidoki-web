@@ -7,22 +7,22 @@ const state = {
   sidebarCollapsed: false,
   sidebarWidth: null,
   includeWoFields: false,
-  sections: { pinned: true, bookmarked: true, notes: true },
+  sections: { pinned: true, bookmarked: true },
   currentDocId: null,
   currentBookmarkId: null,
   draft: emptyDraft(),
   templateDrafts: {},
   pins: [],
-  bookmarks: [],
-  notes: []
+  bookmarks: []
 };
 
-let savedNoteRange=null;
-let pendingNoteMerge=null;
 let actionAudioContext=null;
 let bookmarkPointerDrag=null;
 let bookmarkAutoScrollTimer=null;
 let suppressBookmarkClick=false;
+let stopwatchElapsed=0;
+let stopwatchStartedAt=null;
+let stopwatchTimer=null;
 
 function emptyDraft(){
   return {
@@ -121,10 +121,11 @@ function load(){
     const saved=JSON.parse(localStorage.getItem(STORAGE_KEY));
     if(saved) Object.assign(state,saved);
   }catch(e){}
-  state.sections={pinned:true,bookmarked:true,notes:true,...(state.sections || {})};
+  delete state.notes;
+  state.sections={pinned:true,bookmarked:true,...(state.sections || {})};
+  delete state.sections.notes;
   state.pins=Array.isArray(state.pins)?state.pins:[];
   state.bookmarks=Array.isArray(state.bookmarks)?state.bookmarks:[];
-  state.notes=Array.isArray(state.notes)?state.notes:[];
   if(!state.bookmarks.some(item=>item.id===state.currentBookmarkId)) state.currentBookmarkId=null;
   if(!themes.includes(state.theme)) state.theme="forest";
   if(state.activeTemplate==="disconnected") state.activeTemplate="discplate";
@@ -204,62 +205,6 @@ function esc(v){
   return String(v ?? "").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 }
 
-function sanitizeNoteHtml(html){
-  const parsed=new DOMParser().parseFromString(String(html ?? ""),"text/html");
-  const allowed=new Set(["B","STRONG","I","EM","U","P","DIV","BR","SPAN","TABLE","COLGROUP","COL","THEAD","TBODY","TR","TH","TD"]);
-  function clean(node){
-    return Array.from(node.childNodes).map(child=>{
-      if(child.nodeType===Node.TEXT_NODE) return esc(child.nodeValue);
-      if(child.nodeType!==Node.ELEMENT_NODE) return "";
-      if(child.classList.contains("table-resize-handle")) return "";
-      const content=clean(child);
-      if(!allowed.has(child.tagName)) return content;
-      if(child.tagName==="SPAN"){
-        const size=child.dataset.size;
-        return size && ["small","normal","large"].includes(size)
-          ? `<span data-size="${size}">${content}</span>` : content;
-      }
-      if(child.tagName==="TABLE"){
-        const widths=(child.dataset.colWidths || "").split(",").map(Number);
-        const rows=(child.dataset.rowHeights || "").split(",").map(Number);
-        const widthValue=widths.length && widths.every(n=>Number.isFinite(n) && n>0 && n<=100)
-          ? ` data-col-widths="${widths.join(",")}"` : "";
-        const rowValue=rows.length && rows.every(n=>Number.isFinite(n) && n>=30 && n<=2000)
-          ? ` data-row-heights="${rows.join(",")}"` : "";
-        return `<table${widthValue}${rowValue}>${content}</table>`;
-      }
-      if(child.tagName==="TD" || child.tagName==="TH"){
-        const rowSpan=Number(child.rowSpan),colSpan=Number(child.colSpan);
-        const rowValue=rowSpan>1 && rowSpan<=100 ? ` rowspan="${rowSpan}"` : "";
-        const colValue=colSpan>1 && colSpan<=100 ? ` colspan="${colSpan}"` : "";
-        let mergedValue="";
-        if(child.dataset.mergeOriginals){
-          try{
-            const originals=JSON.parse(child.dataset.mergeOriginals);
-            if(Number.isInteger(originals.rows) && originals.rows>0 && originals.rows<=100 &&
-              Number.isInteger(originals.cols) && originals.cols>0 && originals.cols<=100 &&
-              Array.isArray(originals.cells) && originals.cells.length===originals.rows &&
-              originals.cells.every(row=>Array.isArray(row) && row.length===originals.cols &&
-                row.every(cell=>cell && ["TD","TH"].includes(cell.tag) && typeof cell.html==="string"))){
-              const cleanOriginals=originals.cells.map(row=>row.map(cell=>{
-                const original=document.createElement("div");
-                original.innerHTML=cell.html;
-                return {tag:cell.tag,html:clean(original)};
-              }));
-              mergedValue=` data-merge-originals="${esc(JSON.stringify({...originals,cells:cleanOriginals}))}"`;
-            }
-          }catch(error){
-            console.warn("Unable to preserve merged note table cells.",error);
-          }
-        }
-        return `<${child.tagName.toLowerCase()}${rowValue}${colValue}${mergedValue}>${content}</${child.tagName.toLowerCase()}>`;
-      }
-      return `<${child.tagName.toLowerCase()}>${content}</${child.tagName.toLowerCase()}>`;
-    }).join("");
-  }
-  return clean(parsed.body);
-}
-
 function field(key,label,placeholder="",large=false){
   const value=esc(state.draft[key]);
   return `<div class="field">
@@ -304,13 +249,6 @@ function renderSidebar(){
       <span class="item-title">${String(doc.carNumber || "").trim() ? `Car# ${esc(String(doc.carNumber).trim())}` : esc(String(doc.template || "Document").toUpperCase())}</span>
       <button class="delete-pin" data-delete-pin="${doc.id}" title="Delete pinned doc" aria-label="Delete pinned doc">×</button>
     </div>`).join("") : `<div class="empty-list">No pinned docs yet</div>`) : "";
-
-  const n=document.getElementById("notesList");
-  n.innerHTML=state.sections.notes ? (state.notes.length ? state.notes.map(note=>`
-    <div class="side-item note-item" data-note="${note.id}">
-      <span class="item-title">${esc(note.title || "Note")}</span>
-      <button class="delete-pin" data-delete-note="${note.id}" title="Delete note" aria-label="Delete note">×</button>
-    </div>`).join("") : `<div class="empty-list">No notes yet</div>`) : "";
 
   const b=document.getElementById("bookmarksList");
   b.innerHTML=state.sections.bookmarked ? (state.bookmarks.length ? state.bookmarks.map(doc=>`
@@ -780,530 +718,6 @@ function deletePin(id){
   persist();render();
 }
 
-function createNote(){
-  const note={id:makeId(),title:`Note ${state.notes.length+1}`,content:""};
-  state.notes.push(note);persist();render();
-  openNote(note.id);
-}
-function openNote(id){
-  const note=state.notes.find(x=>x.id===id);if(!note)return;
-  const panel=document.getElementById("documentPanel");
-  document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
-  panel.className="document-panel";
-  panel.innerHTML=`<div class="note-editor">
-    <input class="field-control" id="noteTitle" value="${esc(note.title)}" placeholder="Note title">
-    <div class="note-toolbar" role="toolbar" aria-label="Note formatting">
-      <button type="button" data-note-command="bold" title="Bold (Ctrl+B)"><strong>B</strong></button>
-      <button type="button" data-note-command="italic" title="Italic (Ctrl+I)"><em>I</em></button>
-      <button type="button" data-note-command="underline" title="Underline (Ctrl+U)"><u>U</u></button>
-      <label class="font-size-control">Size
-        <select id="noteFontSize" aria-label="Selected text size">
-          <option value="small">Small</option>
-          <option value="normal" selected>Normal</option>
-          <option value="large">Large</option>
-        </select>
-      </label>
-      <div class="table-tool">
-        <button type="button" id="insertNoteTable" title="Insert table" aria-label="Insert table" aria-expanded="false">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="1.5"></rect><path d="M3.5 10h17M3.5 14.5h17M9 4.5v15M15 4.5v15"></path></svg>
-        </button>
-        <div class="table-picker hidden" id="tablePicker" aria-label="Choose table size">
-          <div class="table-picker-label" id="tablePickerLabel">Choose table size</div>
-          <div class="table-picker-grid" role="group" aria-label="Table rows and columns">
-            ${Array.from({length:36},(_,i)=>{
-              const rows=Math.floor(i/6)+1,cols=i%6+1;
-              return `<button type="button" class="table-picker-cell" data-rows="${rows}" data-cols="${cols}" aria-label="${rows} rows by ${cols} columns"></button>`;
-            }).join("")}
-          </div>
-        </div>
-      </div>
-      <button type="button" class="table-cell-action" id="mergeNoteCells" title="Merge Cells" aria-label="Merge Cells">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="1.5"/><path d="M9 4v5m6-5v5M3 9h18M3 15h18M9 20v-5m6 5v-5M9 12h6m-2-2 2 2-2 2"/></svg>
-      </button>
-      <span class="table-cell-status" id="tableCellStatus" role="status" aria-live="polite"></span>
-    </div>
-    <div class="note-content" id="noteContent" contenteditable="true" role="textbox" aria-label="Note content" aria-multiline="true" data-placeholder="Write your note..."></div>
-  </div>`;
-  const title=document.getElementById("noteTitle"),content=document.getElementById("noteContent");
-  content.innerHTML=note.contentHtml
-    ? sanitizeNoteHtml(note.contentHtml)
-    : esc(note.content || "").replace(/\n/g,"<br>");
-  initializeNoteTables(content);
-  title.oninput=()=>{note.title=title.value;persist();renderSidebar()};
-  content.oninput=()=>{
-    initializeNoteTables(content);
-    note.contentHtml=sanitizeNoteHtml(content.innerHTML);
-    note.content=content.innerText;
-    persist();
-  };
-  content.onkeyup=()=>{
-    saveNoteSelection();
-    updateNoteCellHighlight(content);
-  };
-  content.onmouseup=()=>{
-    saveNoteSelection();
-    updateNoteCellHighlight(content);
-  };
-  content.onfocus=saveNoteSelection;
-  document.querySelectorAll("[data-note-command]").forEach(button=>{
-    button.onmousedown=e=>e.preventDefault();
-    button.onclick=()=>{
-      content.focus();
-      document.execCommand(button.dataset.noteCommand,false);
-      saveNoteSelection();
-      content.dispatchEvent(new Event("input",{bubbles:true}));
-    };
-  });
-  const fontSize=document.getElementById("noteFontSize");
-  fontSize.onmousedown=saveNoteSelection;
-  fontSize.onchange=()=>{
-    if(!restoreNoteSelection(content)) return;
-    const selection=document.getSelection();
-    if(!selection || selection.isCollapsed) return;
-    const range=selection.getRangeAt(0);
-    const span=document.createElement("span");
-    span.dataset.size=fontSize.value;
-    span.appendChild(range.extractContents());
-    range.insertNode(span);
-    selection.removeAllRanges();
-    const caret=document.createRange();
-    caret.selectNodeContents(span);
-    selection.addRange(caret);
-    content.dispatchEvent(new Event("input",{bubbles:true}));
-  };
-  const tableButton=document.getElementById("insertNoteTable");
-  const picker=document.getElementById("tablePicker");
-  const pickerLabel=document.getElementById("tablePickerLabel");
-  tableButton.onmousedown=saveNoteSelection;
-  tableButton.onclick=()=>{
-    const opening=picker.classList.contains("hidden");
-    picker.classList.toggle("hidden",!opening);
-    tableButton.setAttribute("aria-expanded",String(opening));
-    if(opening) pickerLabel.textContent="Choose table size";
-  };
-  picker.querySelectorAll(".table-picker-cell").forEach(cell=>{
-    cell.onmouseenter=()=>highlightTableSize(picker,cell.dataset.rows,cell.dataset.cols);
-    cell.onfocus=()=>highlightTableSize(picker,cell.dataset.rows,cell.dataset.cols);
-    cell.onmousedown=e=>e.preventDefault();
-    cell.onclick=()=>{
-      const rows=Number(cell.dataset.rows),cols=Number(cell.dataset.cols);
-      if(!restoreNoteSelection(content)) content.focus();
-      document.execCommand("insertHTML",false,makeNoteTable(rows,cols));
-      content.dispatchEvent(new Event("input",{bubbles:true}));
-      picker.classList.add("hidden");
-      tableButton.setAttribute("aria-expanded","false");
-      saveNoteSelection();
-    };
-  });
-  picker.onmouseleave=()=>clearTableSizeHighlight(picker);
-  const mergeButton=document.getElementById("mergeNoteCells");
-  const tableStatus=document.getElementById("tableCellStatus");
-  mergeButton.onmousedown=e=>{saveNoteSelection();e.preventDefault()};
-  mergeButton.onclick=()=>{
-    if(!restoreNoteSelection(content)){
-      tableStatus.textContent="Select cells to merge.";
-      return;
-    }
-    const selection=document.getSelection();
-    const selectedCells=selection ? cellsBetweenSelectionEndpoints(content,selection) : [];
-    if(selectedCells.length===1 && (selectedCells[0].rowSpan>1 || selectedCells[0].colSpan>1)){
-      if(!unmergeNoteCell(selectedCells[0])){
-        tableStatus.textContent="This merged cell cannot be unmerged.";
-        return;
-      }
-      tableStatus.textContent="";
-      content.dispatchEvent(new Event("input",{bubbles:true}));
-      saveNoteSelection();
-      return;
-    }
-    const plan=makeNoteMergePlan(selectedCells);
-    if(!plan){
-      tableStatus.textContent="Select a rectangular group of table cells.";
-      return;
-    }
-    if(plan.cells.slice(1).some(noteCellHasContent)){
-      pendingNoteMerge={plan,content,button:mergeButton};
-      document.getElementById("mergeConfirmBackdrop").classList.remove("hidden");
-      document.getElementById("mergeConfirmCancel").focus();
-      return;
-    }
-    applyNoteMerge(plan,content);
-    tableStatus.textContent="";
-  };
-  content.addEventListener("keydown",event=>{
-    if(!["Delete","Backspace"].includes(event.key))return;
-    const selection=document.getSelection();
-    if(!selection || selection.isCollapsed)return;
-    const cells=cellsBetweenSelectionEndpoints(content,selection);
-    if(cells.length<2)return;
-    event.preventDefault();
-    const result=deleteSelectedNoteRowsOrColumns(content,selection);
-    if(!result){
-      tableStatus.textContent="Select a whole row or whole column to delete it.";
-      return;
-    }
-    tableStatus.textContent="";
-  });
-}
-function highlightTableSize(picker,rows,cols){
-  const r=Number(rows),c=Number(cols);
-  picker.querySelectorAll(".table-picker-cell").forEach(cell=>{
-    cell.classList.toggle("selected",Number(cell.dataset.rows)<=r && Number(cell.dataset.cols)<=c);
-  });
-  document.getElementById("tablePickerLabel").textContent=`${r} × ${c} table`;
-}
-function clearTableSizeHighlight(picker){
-  if(document.activeElement?.classList.contains("table-picker-cell")) return;
-  picker.querySelectorAll(".table-picker-cell").forEach(cell=>cell.classList.remove("selected"));
-  document.getElementById("tablePickerLabel").textContent="Choose table size";
-}
-function makeNoteTable(rows,cols){
-  const colgroup=`<colgroup>${Array.from({length:cols},()=>"<col>").join("")}</colgroup>`;
-  const body=Array.from({length:rows},()=>`<tr>${Array.from({length:cols},()=>"<td><br></td>").join("")}</tr>`).join("");
-  return `<table>${colgroup}<tbody>${body}</tbody></table><p><br></p>`;
-}
-function initializeNoteTables(editor){
-  editor.querySelectorAll("table").forEach(table=>{
-    const rows=Array.from(table.rows);
-    const cols=Math.max(0,...rows.map(row=>Array.from(row.cells).reduce((sum,cell)=>sum+cell.colSpan,0)));
-    if(!cols || !rows.length) return;
-
-    let colgroup=table.querySelector(":scope > colgroup");
-    if(!colgroup){colgroup=document.createElement("colgroup");table.insertBefore(colgroup,table.firstChild)}
-    while(colgroup.children.length<cols) colgroup.appendChild(document.createElement("col"));
-    while(colgroup.children.length>cols) colgroup.lastElementChild.remove();
-    let widths=(table.dataset.colWidths || "").split(",").map(Number);
-    if(widths.length!==cols || widths.some(n=>!Number.isFinite(n) || n<=0)){
-      widths=Array(cols).fill(100/cols);
-      table.dataset.colWidths=widths.join(",");
-    }
-    Array.from(colgroup.children).forEach((col,index)=>{
-      const width=`${widths[index]}%`;
-      if(col.style.width!==width) col.style.width=width;
-    });
-    if(table.style.tableLayout!=="fixed") table.style.tableLayout="fixed";
-    if(table.style.width!=="100%") table.style.width="100%";
-
-    const heights=(table.dataset.rowHeights || "").split(",").map(Number);
-    const {positions}=noteTableGrid(table);
-    rows.forEach((row,rowIndex)=>{
-      if(Number.isFinite(heights[rowIndex]) && heights[rowIndex]>=30){
-        const height=`${heights[rowIndex]}px`;
-        if(row.style.height!==height) row.style.height=height;
-      }
-    });
-    rows.forEach(row=>{
-      Array.from(row.cells).forEach(cell=>{
-        const position=positions.get(cell);
-        if(!position)return;
-        const endColumn=position.column+position.colSpan-1;
-        const endRow=position.row+position.rowSpan-1;
-        let columnHandle=cell.querySelector(":scope > .column-resize-handle");
-        if(endColumn<cols-1){
-          if(!columnHandle) addTableResizeHandle(cell,"column",endColumn);
-          else columnHandle.dataset.index=String(endColumn);
-        }else if(columnHandle){
-          columnHandle.remove();
-        }
-        let rowHandle=cell.querySelector(":scope > .row-resize-handle");
-        if(endRow<rows.length-1){
-          if(!rowHandle) addTableResizeHandle(cell,"row",endRow);
-          else rowHandle.dataset.index=String(endRow);
-        }else if(rowHandle){
-          rowHandle.remove();
-        }
-      });
-    });
-  });
-}
-function noteTableGrid(table){
-  const rows=Array.from(table.rows);
-  const grid=rows.map(()=>[]);
-  const positions=new Map();
-  rows.forEach((row,rowIndex)=>{
-    let column=0;
-    Array.from(row.cells).forEach(cell=>{
-      while(grid[rowIndex][column]) column++;
-      const rowSpan=Math.max(1,cell.rowSpan),colSpan=Math.max(1,cell.colSpan);
-      positions.set(cell,{row:rowIndex,column,rowSpan,colSpan});
-      for(let r=rowIndex;r<Math.min(rows.length,rowIndex+rowSpan);r++){
-        for(let c=column;c<column+colSpan;c++) grid[r][c]=cell;
-      }
-      column+=colSpan;
-    });
-  });
-  return {rows,grid,positions};
-}
-function cellsBetweenSelectionEndpoints(editor,selection){
-  const getCell=node=>{
-    const element=node?.nodeType===Node.ELEMENT_NODE ? node : node?.parentElement;
-    return element?.closest("td,th") || null;
-  };
-  const anchor=getCell(selection.anchorNode),focus=getCell(selection.focusNode);
-  const table=anchor?.closest("table");
-  if(!table || focus?.closest("table")!==table)return [];
-  const {grid,positions}=noteTableGrid(table);
-  const start=positions.get(anchor),end=positions.get(focus);
-  if(!start || !end)return [];
-  const top=Math.min(start.row,end.row),bottom=Math.max(start.row,end.row);
-  const left=Math.min(start.column,end.column),right=Math.max(start.column,end.column);
-  const cells=new Set();
-  for(let row=top;row<=bottom;row++){
-    for(let column=left;column<=right;column++){
-      const cell=grid[row]?.[column];
-      if(!cell)return [];
-      cells.add(cell);
-    }
-  }
-  return Array.from(cells);
-}
-function updateNoteCellHighlight(editor){
-  editor.querySelectorAll("td.note-cell-selected,th.note-cell-selected").forEach(cell=>{
-    cell.classList.remove("note-cell-selected");
-  });
-  const selection=document.getSelection();
-  if(!selection || !selection.rangeCount)return;
-  cellsBetweenSelectionEndpoints(editor,selection).forEach(cell=>cell.classList.add("note-cell-selected"));
-}
-function makeNoteMergePlan(cells){
-  if(cells.length<2)return false;
-  const table=cells[0].closest("table");
-  if(!table || cells.some(cell=>cell.closest("table")!==table))return false;
-  const {rows,grid,positions}=noteTableGrid(table);
-  const selected=new Set(cells);
-  const cellPositions=cells.map(cell=>positions.get(cell));
-  if(cellPositions.some(position=>!position || position.rowSpan!==1 || position.colSpan!==1))return false;
-  const top=Math.min(...cellPositions.map(position=>position.row));
-  const bottom=Math.max(...cellPositions.map(position=>position.row));
-  const left=Math.min(...cellPositions.map(position=>position.column));
-  const right=Math.max(...cellPositions.map(position=>position.column));
-  const rectangle=[];
-  for(let row=top;row<=bottom;row++){
-    for(let column=left;column<=right;column++){
-      const cell=grid[row]?.[column];
-      if(!cell || !selected.has(cell) || positions.get(cell).row!==row || positions.get(cell).column!==column)return false;
-      rectangle.push(cell);
-    }
-  }
-  if(rectangle.length!==selected.size)return false;
-  return {master:grid[top][left],cells:rectangle,rows:bottom-top+1,cols:right-left+1};
-}
-function deleteSelectedNoteRowsOrColumns(editor,selection){
-  const cells=cellsBetweenSelectionEndpoints(editor,selection);
-  if(!cells.length)return false;
-  const table=cells[0].closest("table");
-  if(!table || cells.some(cell=>cell.closest("table")!==table))return false;
-  const {rows,grid,positions}=noteTableGrid(table);
-  const cellPositions=cells.map(cell=>positions.get(cell));
-  if(cellPositions.some(position=>!position))return false;
-  const top=Math.min(...cellPositions.map(position=>position.row));
-  const bottom=Math.max(...cellPositions.map(position=>position.row));
-  const left=Math.min(...cellPositions.map(position=>position.column));
-  const right=Math.max(...cellPositions.map(position=>position.column));
-  const cols=Math.max(0,...grid.map(row=>row.length));
-  const isWholeRows=left===0 && right===cols-1;
-  const isWholeColumns=top===0 && bottom===rows.length-1;
-  if(!isWholeRows && !isWholeColumns)return false;
-
-  if(isWholeRows){
-    const removedRows=new Set(Array.from({length:bottom-top+1},(_,index)=>top+index));
-    if([...positions.values()].some(position=>
-      (position.rowSpan>1 || position.colSpan>1) &&
-      Array.from({length:position.rowSpan},(_,index)=>position.row+index).some(row=>removedRows.has(row))
-    ))return false;
-    const heights=(table.dataset.rowHeights || "").split(",").map(Number);
-    rows.slice(top,bottom+1).forEach(row=>row.remove());
-    const remainingHeights=heights.filter((_,index)=>!removedRows.has(index));
-    table.dataset.rowHeights=remainingHeights.join(",");
-  }else{
-    if([...positions.values()].some(position=>
-      (position.rowSpan>1 || position.colSpan>1) &&
-      position.column<=right && position.column+position.colSpan-1>=left
-    ))return false;
-    rows.forEach(row=>{
-      for(let column=right;column>=left;column--) row.deleteCell(column);
-    });
-    const colgroup=table.querySelector(":scope > colgroup");
-    if(colgroup){
-      for(let column=right;column>=left;column--) colgroup.children[column]?.remove();
-    }
-    const widths=(table.dataset.colWidths || "").split(",").map(Number);
-    const remainingWidths=widths.filter((_,index)=>index<left || index>right);
-    const total=remainingWidths.reduce((sum,width)=>sum+width,0);
-    table.dataset.colWidths=remainingWidths.map(width=>(width/total*100).toFixed(2)).join(",");
-  }
-
-  if(table.rows.length===0 || table.rows[0].cells.length===0){
-    table.remove();
-    if(!editor.textContent.trim() && !editor.querySelector("table")){
-      editor.innerHTML="";
-      editor.focus();
-    }
-  }else{
-    initializeNoteTables(editor);
-    const nextCell=rows[Math.min(top,rows.length-1)]?.cells[Math.min(left,rows[0]?.cells.length-1)];
-    if(nextCell){
-      const range=document.createRange();
-      range.selectNodeContents(nextCell);
-      range.collapse(false);
-      selection.removeAllRanges();
-      selection.addRange(range);
-    }
-  }
-  updateNoteCellHighlight(editor);
-  editor.dispatchEvent(new Event("input",{bubbles:true}));
-  saveNoteSelection();
-  return true;
-}
-function noteCellHasContent(cell){
-  const content=cell.cloneNode(true);
-  content.querySelectorAll(".table-resize-handle").forEach(handle=>handle.remove());
-  return content.textContent.trim()!=="";
-}
-function applyNoteMerge(plan,editor){
-  if(!plan.cells.every(cell=>cell.isConnected))return false;
-  plan.master.rowSpan=plan.rows;
-  plan.master.colSpan=plan.cols;
-  plan.cells.filter(cell=>cell!==plan.master).forEach(cell=>cell.remove());
-  const selection=document.getSelection();
-  const range=document.createRange();
-  range.selectNodeContents(plan.master);
-  range.collapse(false);
-  selection.removeAllRanges();
-  selection.addRange(range);
-  updateNoteCellHighlight(editor);
-  document.getElementById("mergeConfirmBackdrop").classList.add("hidden");
-  pendingNoteMerge=null;
-  editor.dispatchEvent(new Event("input",{bubbles:true}));
-  saveNoteSelection();
-  return true;
-}
-function unmergeNoteCell(master){
-  let originals;
-  if(master.dataset.mergeOriginals){
-    try{
-      originals=JSON.parse(master.dataset.mergeOriginals);
-    }catch(error){
-      console.warn("Unable to restore merged note table cells.",error);
-      return false;
-    }
-  }
-  if(!originals){
-    originals={
-      rows:master.rowSpan,
-      cols:master.colSpan,
-      cells:Array.from({length:master.rowSpan},(_,rowIndex)=>
-        Array.from({length:master.colSpan},(_,columnIndex)=>({
-          tag:master.tagName,
-          html:rowIndex===0 && columnIndex===0 ? sanitizeNoteHtml(master.innerHTML) : ""
-        }))
-      )
-    };
-  }
-  if(!Number.isInteger(originals.rows) || originals.rows<1 ||
-    !Number.isInteger(originals.cols) || originals.cols<1 ||
-    !Array.isArray(originals.cells) || originals.cells.length!==originals.rows ||
-    originals.cells.some(row=>!Array.isArray(row) || row.length!==originals.cols ||
-      row.some(cell=>!cell || !["TD","TH"].includes(cell.tag) || typeof cell.html!=="string"))) return false;
-  const table=master.closest("table");
-  const tableRow=master.parentElement;
-  const tableRows=Array.from(table.rows);
-  const top=tableRows.indexOf(tableRow);
-  const {positions}=noteTableGrid(table);
-  const position=positions.get(master);
-  if(!position || position.row!==top)return false;
-  const left=position.column,right=left+originals.cols-1;
-  master.remove();
-  for(let rowOffset=0;rowOffset<originals.rows;rowOffset++){
-    const row=tableRows[top+rowOffset];
-    if(!row)return false;
-    const followingCell=Array.from(row.cells).find(cell=>positions.get(cell)?.column>right);
-    for(let columnOffset=0;columnOffset<originals.cols;columnOffset++){
-      const original=originals.cells[rowOffset][columnOffset];
-      const cell=document.createElement(original.tag.toLowerCase());
-      cell.innerHTML=sanitizeNoteHtml(original.html);
-      row.insertBefore(cell,followingCell || null);
-    }
-  }
-  const selection=document.getSelection();
-  const firstCell=tableRows[top].cells[left];
-  if(firstCell){
-    const range=document.createRange();
-    range.selectNodeContents(firstCell);
-    range.collapse(false);
-    selection.removeAllRanges();
-    selection.addRange(range);
-  }
-  return true;
-}
-function addTableResizeHandle(cell,axis,index){
-  const handle=document.createElement("span");
-  handle.className=`table-resize-handle ${axis}-resize-handle`;
-  handle.contentEditable="false";
-  handle.dataset.axis=axis;
-  handle.dataset.index=String(index);
-  handle.setAttribute("role","separator");
-  handle.setAttribute("aria-label",`Resize table ${axis}`);
-  handle.addEventListener("pointerdown",startTableResize);
-  cell.appendChild(handle);
-}
-function startTableResize(event){
-  event.preventDefault();
-  event.stopPropagation();
-  const handle=event.currentTarget;
-  const table=handle.closest("table");
-  if(!table)return;
-  const axis=handle.dataset.axis,index=Number(handle.dataset.index);
-  const rows=Array.from(table.rows);
-  const start=axis==="column"?event.clientX:event.clientY;
-  const cols=Array.from(table.querySelectorAll(":scope > colgroup > col"));
-  const startWidths=cols.map(col=>col.getBoundingClientRect().width);
-  const startHeight=axis==="row"?rows[index]?.getBoundingClientRect().height:0;
-  const onMove=move=>{
-    if(axis==="column"){
-      const nextIndex=index+1;
-      if(!cols[nextIndex])return;
-      const total=startWidths[index]+startWidths[nextIndex];
-      const width=Math.max(40,Math.min(total-40,startWidths[index]+move.clientX-start));
-      cols[index].style.width=`${width}px`;
-      cols[nextIndex].style.width=`${total-width}px`;
-    }else if(rows[index]){
-      rows[index].style.height=`${Math.max(30,startHeight+move.clientY-start)}px`;
-    }
-  };
-  const onEnd=()=>{
-    document.removeEventListener("pointermove",onMove);
-    document.removeEventListener("pointerup",onEnd);
-    if(axis==="column"){
-      const width=table.getBoundingClientRect().width;
-      table.dataset.colWidths=cols.map(col=>(col.getBoundingClientRect().width/width*100).toFixed(2)).join(",");
-    }else{
-      table.dataset.rowHeights=rows.map(row=>Math.max(30,row.getBoundingClientRect().height).toFixed(0)).join(",");
-    }
-    const editor=table.closest(".note-content");
-    if(editor) editor.dispatchEvent(new Event("input",{bubbles:true}));
-  };
-  document.addEventListener("pointermove",onMove);
-  document.addEventListener("pointerup",onEnd,{once:true});
-}
-function saveNoteSelection(){
-  const editor=document.getElementById("noteContent");
-  const selection=document.getSelection();
-  if(editor && selection?.rangeCount && editor.contains(selection.anchorNode)){
-    savedNoteRange=selection.getRangeAt(0).cloneRange();
-  }
-}
-function restoreNoteSelection(editor){
-  if(!savedNoteRange || !editor.contains(savedNoteRange.commonAncestorContainer)) return false;
-  const selection=document.getSelection();
-  selection.removeAllRanges();
-  selection.addRange(savedNoteRange);
-  return true;
-}
-function deleteNote(id){
-  state.notes=state.notes.filter(x=>x.id!==id);persist();render();
-}
-
 function openClear(){
   const templateName=state.activeTemplate.toUpperCase();
   document.getElementById("modalTitle").textContent="You sure ’bout that?";
@@ -1463,10 +877,6 @@ document.addEventListener("click",e=>{
   }
   const delBookmark=e.target.closest("[data-delete-bookmark]");
   if(delBookmark){deleteBookmark(delBookmark.dataset.deleteBookmark);return}
-  const note=e.target.closest("[data-note]");
-  if(note && !e.target.closest("[data-delete-note]")){openNote(note.dataset.note);return}
-  const delNote=e.target.closest("[data-delete-note]");
-  if(delNote){deleteNote(delNote.dataset.deleteNote);return}
   const tab=e.target.closest(".tab");
   if(tab){
     const nextTemplate=tab.dataset.template;
@@ -1538,37 +948,54 @@ document.getElementById("themePicker").addEventListener("change",event=>{
   applyTheme(state.theme);
   persist();
 });
-document.getElementById("newNote").onclick=createNote;
+const sidebarClock=document.getElementById("sidebarClock");
+function updateSidebarClock(){
+  const now=new Date();
+  sidebarClock.dateTime=now.toISOString();
+  sidebarClock.textContent=now.toLocaleTimeString([], {hour:"numeric",minute:"2-digit",second:"2-digit",hour12:true}).replace(/\s/g,"");
+}
+function updateStopwatch(){
+  const elapsed=stopwatchElapsed+(stopwatchStartedAt===null?0:performance.now()-stopwatchStartedAt);
+  const centiseconds=Math.floor(elapsed/10);
+  const hours=Math.floor(centiseconds/360000);
+  const minutes=Math.floor(centiseconds/6000)%60;
+  const seconds=Math.floor(centiseconds/100)%60;
+  const fraction=centiseconds%100;
+  document.getElementById("stopwatchDisplay").textContent=hours
+    ? `${String(hours).padStart(2,"0")}:${String(minutes).padStart(2,"0")}:${String(seconds).padStart(2,"0")}.${String(fraction).padStart(2,"0")}`
+    : `${String(Math.floor(centiseconds/6000)).padStart(2,"0")}:${String(seconds).padStart(2,"0")}.${String(fraction).padStart(2,"0")}`;
+}
+const stopwatchToggle=document.getElementById("stopwatchToggle");
+const stopwatchReset=document.getElementById("stopwatchReset");
+stopwatchToggle.addEventListener("click",()=>{
+  if(stopwatchStartedAt===null){
+    stopwatchStartedAt=performance.now();
+    stopwatchTimer=window.setInterval(updateStopwatch,50);
+    stopwatchToggle.textContent="Pause";
+    stopwatchReset.disabled=true;
+  }else{
+    stopwatchElapsed+=performance.now()-stopwatchStartedAt;
+    stopwatchStartedAt=null;
+    window.clearInterval(stopwatchTimer);
+    stopwatchTimer=null;
+    stopwatchToggle.textContent="Start";
+    stopwatchReset.disabled=false;
+    updateStopwatch();
+  }
+});
+stopwatchReset.addEventListener("click",()=>{
+  stopwatchElapsed=0;
+  stopwatchStartedAt=null;
+  if(stopwatchTimer!==null) window.clearInterval(stopwatchTimer);
+  stopwatchTimer=null;
+  stopwatchToggle.textContent="Start";
+  stopwatchReset.disabled=true;
+  updateStopwatch();
+});
+updateSidebarClock();
+window.setInterval(updateSidebarClock,1000);
+updateStopwatch();
 document.getElementById("modalCancel").onclick=closeModal;
 document.getElementById("modalBackdrop").addEventListener("click",e=>{if(e.target.id==="modalBackdrop")closeModal()});
-document.getElementById("mergeConfirmCancel").onclick=()=>{
-  const pending=pendingNoteMerge;
-  pendingNoteMerge=null;
-  document.getElementById("mergeConfirmBackdrop").classList.add("hidden");
-  pending?.button.focus();
-};
-document.getElementById("mergeConfirmProceed").onclick=()=>{
-  const pending=pendingNoteMerge;
-  pendingNoteMerge=null;
-  document.getElementById("mergeConfirmBackdrop").classList.add("hidden");
-  if(pending && applyNoteMerge(pending.plan,pending.content)){
-    document.getElementById("tableCellStatus").textContent="";
-  }else if(pending){
-    document.getElementById("tableCellStatus").textContent="The selected cells are no longer available.";
-  }
-  pending?.button.focus();
-};
-document.getElementById("mergeConfirmBackdrop").addEventListener("click",e=>{
-  if(e.target.id==="mergeConfirmBackdrop") document.getElementById("mergeConfirmCancel").click();
-});
-document.addEventListener("keydown",e=>{
-  if(e.key==="Escape" && !document.getElementById("mergeConfirmBackdrop").classList.contains("hidden")){
-    document.getElementById("mergeConfirmCancel").click();
-  }
-});
-document.addEventListener("selectionchange",()=>{
-  const editor=document.getElementById("noteContent");
-  if(editor)updateNoteCellHighlight(editor);
-});
 
 load();
