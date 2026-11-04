@@ -1,5 +1,6 @@
 const STORAGE_KEY = "myDokiDoki.v1";
 const SELECT_HINT_VERSION = 1;
+const DOCUMENT_TEMPLATES = ["dplate","discplate","soul","csat"];
 
 const state = {
   activeTemplate: "dplate",
@@ -80,9 +81,21 @@ function emptySoulDraft(){
   };
 }
 
+function emptyCsatDraft(){
+  return {
+    messageType:"regular",
+    operatorName:"",
+    csatCarNumber:"",
+    woId:"",
+    techDepotLocation:"",
+    caseNumber:""
+  };
+}
+
 function emptyDraftFor(template){
   if(template==="discplate") return emptyDiscDraft();
   if(template==="soul") return emptySoulDraft();
+  if(template==="csat") return emptyCsatDraft();
   return emptyDraft();
 }
 
@@ -129,12 +142,17 @@ function load(){
   if(!state.bookmarks.some(item=>item.id===state.currentBookmarkId)) state.currentBookmarkId=null;
   if(!themes.includes(state.theme)) state.theme="forest";
   if(state.activeTemplate==="disconnected") state.activeTemplate="discplate";
+  if(!DOCUMENT_TEMPLATES.includes(state.activeTemplate)) state.activeTemplate="dplate";
   const savedDrafts=state.templateDrafts || {};
   state.templateDrafts={
     dplate:{...emptyDraft(),...(savedDrafts.dplate || state.draft || {})},
     discplate:{...emptyDiscDraft(),...(savedDrafts.discplate || {})},
-    soul:{...emptySoulDraft(),...(savedDrafts.soul || {})}
+    soul:{...emptySoulDraft(),...(savedDrafts.soul || {})},
+    csat:{...emptyCsatDraft(),...(savedDrafts.csat || {})}
   };
+  if(!["regular","withWo","withWoTechDepot"].includes(state.templateDrafts.csat.messageType)){
+    state.templateDrafts.csat.messageType="regular";
+  }
   if(state.selectHintVersion!==SELECT_HINT_VERSION){
     ["geo","missionType","vehiclePlatform","vehicleLocation","endResult"].forEach(key=>{
       if(state.templateDrafts.discplate[key]==="N/A") state.templateDrafts.discplate[key]="";
@@ -144,7 +162,7 @@ function load(){
     });
     state.selectHintVersion=SELECT_HINT_VERSION;
   }
-  if(["dplate","discplate","soul"].includes(state.activeTemplate)){
+  if(DOCUMENT_TEMPLATES.includes(state.activeTemplate)){
     state.draft=state.templateDrafts[state.activeTemplate];
   }else{
     state.draft=state.templateDrafts.dplate;
@@ -375,7 +393,7 @@ function renderTabs(){
 
 function renderPanel(){
   const panel=document.getElementById("documentPanel");
-  if(!["dplate","discplate","soul"].includes(state.activeTemplate)){
+  if(!DOCUMENT_TEMPLATES.includes(state.activeTemplate)){
     panel.className="document-panel coming-soon";
     panel.textContent="Coming Soon";
     return;
@@ -390,18 +408,18 @@ function renderPanel(){
         <button class="action-btn clear-btn" id="clearBtn" title="Clear fields" aria-label="Clear fields">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-.8 13H6.8L6 7m4 3v6m4-6v6"/></svg>
         </button>
-        <button class="action-btn bookmark-btn${isBookmarked?" is-bookmarked":""}" id="bookmarkBtn" title="${isBookmarked?"Bookmark saved":"Bookmark document"}" aria-label="${isBookmarked?"Bookmark saved":"Bookmark document"}" aria-pressed="${isBookmarked}">
+        ${state.activeTemplate==="csat"?"":`<button class="action-btn bookmark-btn${isBookmarked?" is-bookmarked":""}" id="bookmarkBtn" title="${isBookmarked?"Bookmark saved":"Bookmark document"}" aria-label="${isBookmarked?"Bookmark saved":"Bookmark document"}" aria-pressed="${isBookmarked}">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4.75A1.75 1.75 0 0 1 7.75 3h8.5A1.75 1.75 0 0 1 18 4.75V21l-6-4-6 4V4.75Z"/></svg>
-        </button>
-        <button class="action-btn pin-btn${isPinned?" is-pinned":""}" id="pinBtn" title="${isPinned?"Pinned":"Pin document"}" aria-label="${isPinned?"Pinned":"Pin document"}" aria-pressed="${isPinned}">
+        </button>`}
+        ${state.activeTemplate==="csat"?"":`<button class="action-btn pin-btn${isPinned?" is-pinned":""}" id="pinBtn" title="${isPinned?"Pinned":"Pin document"}" aria-label="${isPinned?"Pinned":"Pin document"}" aria-pressed="${isPinned}">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3h8l-1 5 3 3v2h-5l-1 8-1-8H6v-2l3-3-1-5Z"/></svg>
-        </button>
-        <button class="action-btn copy-btn" id="copyBtn" title="Copy document" aria-label="Copy document">
+        </button>`}
+        <button class="action-btn copy-btn" id="copyBtn" title="Copy ${state.activeTemplate==="csat"?"message":"document"}" aria-label="Copy ${state.activeTemplate==="csat"?"message":"document"}">
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h2"/></svg>
         </button>
       </div>
     </div>`;
-  const carNumber=state.activeTemplate==="soul" ? "" : `
+  const carNumber=["soul","csat"].includes(state.activeTemplate) ? "" : `
     <div class="dplate-top ${state.activeTemplate==="dplate"?"has-tech-depot":""}">
       ${state.activeTemplate==="dplate"?'<div class="tech-depot-guide" id="techDepotInstruction" aria-live="polite">Tech Depot: Select GEO</div>':""}
       ${state.activeTemplate==="dplate"?`
@@ -414,7 +432,43 @@ function renderPanel(){
         <input class="field-control" data-key="carNumber" value="${esc(state.draft.carNumber)}" />
       </div>
     </div>`;
-  const fields=state.activeTemplate==="dplate" ? `
+  const fields=state.activeTemplate==="csat" ? `
+    <div class="csat-template">
+      <div class="csat-type-selector" aria-label="CSAT message type">
+        <button class="csat-type-card${state.draft.messageType==="regular"?" active":""}" type="button" data-csat-type="regular" aria-pressed="${state.draft.messageType==="regular"}">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5 8 8 0 0 1-3.4-.76L4 20l1.76-4.1A7.5 7.5 0 1 1 20 11.5Z"/></svg>
+          <span class="csat-type-copy"><strong>Regular</strong><small>Standard feedback request</small></span>
+        </button>
+        <button class="csat-type-card${state.draft.messageType==="withWo"?" active":""}" type="button" data-csat-type="withWo" aria-pressed="${state.draft.messageType==="withWo"}">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.7 6.3 3 3M5 19l5.2-5.2m-1.6-1.6 6.6-6.6a3 3 0 0 1 4.2 4.2l-6.6 6.6m-2.6-4.2 3 3M4 20l3.2-.8"/></svg>
+          <span class="csat-type-copy"><strong>With WO</strong><small>Includes Work Order details</small></span>
+        </button>
+        <button class="csat-type-card${state.draft.messageType==="withWoTechDepot"?" active":""}" type="button" data-csat-type="withWoTechDepot" aria-pressed="${state.draft.messageType==="withWoTechDepot"}">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></svg>
+          <span class="csat-type-copy"><strong>WO + Tech Depot</strong><small>Includes depot instructions</small></span>
+        </button>
+      </div>
+      <div class="csat-content">
+        <div class="csat-fields csat-fields-${state.draft.messageType}">
+          ${state.draft.messageType==="regular" ? "" : `
+            <div class="csat-field csat-field-operator">${textField("operatorName","Operator...")}</div>
+            <div class="csat-field csat-field-car">${textField("csatCarNumber","Car #...")}</div>
+            <div class="csat-field csat-field-wo">${textField("woId","WO ID...")}</div>
+            <div class="csat-field csat-field-case">${textField("caseNumber","Case #...")}</div>
+            ${state.draft.messageType==="withWoTechDepot" ? `<div class="csat-field csat-field-depot">${textField("techDepotLocation","Tech Depot...")}</div>` : ""}
+          `}
+          ${state.draft.messageType==="regular" ? `<div class="csat-field csat-field-case">${textField("caseNumber","Case #...")}</div>` : ""}
+        </div>
+        <div class="csat-preview">
+          <section class="csat-message-section" aria-labelledby="csatMessageLabel">
+            <label id="csatMessageLabel" class="field-label" for="csatMessage">Generated message</label>
+            <textarea id="csatMessage" class="field-control csat-message-output" aria-label="Generated message" readonly rows="4"></textarea>
+          </section>
+          ${actions}
+        </div>
+      </div>
+    </div>
+  ` : state.activeTemplate==="dplate" ? `
 
     ${field("description","Description of the Issue","Description of the issue...",true)}
 
@@ -485,9 +539,51 @@ function renderPanel(){
       ${field("resourcedUsed","Resourced Used","Resourced Used...")}
     </div>
   `;
-  panel.innerHTML=`${carNumber}${fields}${actions}`;
+  panel.innerHTML=state.activeTemplate==="csat" ? fields : `${carNumber}${fields}${actions}`;
   bindPanel();
   autoSizeAll();
+}
+
+function csatMessageContent(){
+  const d=state.draft;
+  const caseNumber=String(d.caseNumber || "").trim();
+  const feedbackText=`if you have a minute to spare, please share your feedback at go/es.feedback${caseNumber?` about case ${caseNumber}`:""}.`;
+  const feedbackHtml=`if you have a minute to spare, please share your feedback at go/es.feedback${caseNumber?` about case <strong>${esc(caseNumber)}</strong>`:""}.`;
+  if(d.messageType==="regular"){
+    return {
+      plain:`Hi, This is Carl, ${feedbackText}`,
+      html:`Hi, This is Carl, ${feedbackHtml}`
+    };
+  }
+  const operatorName=String(d.operatorName || "").trim();
+  const carNumber=String(d.csatCarNumber || "").trim();
+  const woId=String(d.woId || "").trim();
+  const greeting=operatorName?`Hello ${operatorName}, `:"";
+  const greetingHtml=operatorName?`Hello ${esc(operatorName)}, `:"";
+  const carClause=carNumber?` for car ${carNumber}`:"";
+  const carClauseHtml=carNumber?` for car <strong>${esc(carNumber)}</strong>`:"";
+  const woIdClause=woId?`, here's the WO ID for your reference: ${woId}`:"";
+  const woIdClauseHtml=woId?`, here's the WO ID for your reference: <strong>${esc(woId)}</strong>`:"";
+  const techDepotLocation=String(d.techDepotLocation || "").trim();
+  const techDepotSentence=d.messageType==="withWoTechDepot"
+    && techDepotLocation
+    ? ` You can proceed with having this vehicle brought to ${techDepotLocation} Tech Depot.`
+    : "";
+  const woSentence=`The WO has been created${carClause}${woIdClause}.`;
+  const techDepotSentenceHtml=d.messageType==="withWoTechDepot" && techDepotLocation
+    ? ` You can proceed with having this vehicle brought to ${esc(techDepotLocation)} Tech Depot.`
+    : "";
+  return {
+    plain:`${greeting}${woSentence}${techDepotSentence}\n\nAlso, ${feedbackText}`,
+    html:`${greetingHtml}The WO has been created${carClauseHtml}${woIdClauseHtml}.${techDepotSentenceHtml}<br><br>Also, ${feedbackHtml}`
+  };
+}
+
+function generateCsatMessage(){return csatMessageContent().plain}
+
+function updateCsatMessage(){
+  const message=document.getElementById("csatMessage");
+  if(message) message.value=generateCsatMessage();
 }
 
 function bindPanel(){
@@ -501,12 +597,23 @@ function bindPanel(){
     document.getElementById("bookmarkBtn"),
     document.getElementById("pinBtn"),
     document.getElementById("copyBtn")
-  ];
+  ].filter(Boolean);
   actionButtons.forEach(button=>button.addEventListener("click",()=>playActionFeedback(button)));
   document.getElementById("clearBtn").onclick=openClear;
-  document.getElementById("pinBtn").onclick=pinCurrent;
-  document.getElementById("bookmarkBtn").onclick=bookmarkCurrent;
+  const pinButton=document.getElementById("pinBtn");
+  if(pinButton) pinButton.onclick=pinCurrent;
+  const bookmarkButton=document.getElementById("bookmarkBtn");
+  if(bookmarkButton) bookmarkButton.onclick=bookmarkCurrent;
   document.getElementById("copyBtn").onclick=copyCurrent;
+  document.querySelectorAll("[data-csat-type]").forEach(button=>button.addEventListener("click",()=>{
+    state.draft.messageType=button.dataset.csatType;
+    state.templateDrafts.csat={...state.draft};
+    syncCurrentSavedDocs();
+    persist();
+    renderPanel();
+    updateSaveButtonStates();
+  }));
+  updateCsatMessage();
   const includeWoFields=document.getElementById("includeWoFields");
   if(includeWoFields){
     includeWoFields.addEventListener("change",event=>{
@@ -540,7 +647,7 @@ function playActionFeedback(button){
 }
 function onField(e){
   state.draft[e.target.dataset.key]=e.target.value;
-  if(["dplate","discplate","soul"].includes(state.activeTemplate)){
+  if(DOCUMENT_TEMPLATES.includes(state.activeTemplate)){
     state.templateDrafts[state.activeTemplate]={...state.draft};
   }
   if(state.currentDocId){
@@ -558,6 +665,7 @@ function onField(e){
   persist();
   if(e.target.tagName==="TEXTAREA") autoSize(e.target);
   if(e.target.dataset.key==="geo") updateTechDepotGuide();
+  if(state.activeTemplate==="csat") updateCsatMessage();
   renderSidebar();
 }
 function updateTechDepotGuide(){
@@ -584,7 +692,7 @@ function autoSizeAll(){document.querySelectorAll("textarea").forEach(autoSize)}
 function makeId(){return Date.now().toString(36)+"-"+Math.random().toString(36).slice(2,9)}
 
 function preserveCurrentDraft(){
-  if(!["dplate","discplate","soul"].includes(state.activeTemplate)) return;
+  if(!DOCUMENT_TEMPLATES.includes(state.activeTemplate)) return;
   const data={...state.draft};
   state.templateDrafts[state.activeTemplate]=data;
   if(syncCurrentSavedDocs()) return;
@@ -613,7 +721,7 @@ function syncCurrentSavedDocs(){
 }
 
 function pinCurrent(){
-  if(!["dplate","discplate","soul"].includes(state.activeTemplate)) return;
+  if(!DOCUMENT_TEMPLATES.includes(state.activeTemplate)) return;
   const id=state.currentDocId || state.currentBookmarkId || makeId();
   let doc=state.pins.find(item=>item.id===id);
   if(!doc){
@@ -630,7 +738,7 @@ function pinCurrent(){
 }
 
 function bookmarkCurrent(){
-  if(!["dplate","discplate","soul"].includes(state.activeTemplate)) return;
+  if(!DOCUMENT_TEMPLATES.includes(state.activeTemplate)) return;
   const id=state.currentBookmarkId || state.currentDocId || makeId();
   let doc=state.bookmarks.find(item=>item.id===id);
   if(!doc){
@@ -670,7 +778,7 @@ function openPin(id){
   const doc=state.pins.find(x=>x.id===id);
   if(!doc)return;
   preserveCurrentDraft();
-  state.activeTemplate=["discplate","soul"].includes(doc.template) ? doc.template : "dplate";
+  state.activeTemplate=DOCUMENT_TEMPLATES.includes(doc.template) ? doc.template : "dplate";
   state.currentDocId=id;
   state.currentBookmarkId=state.bookmarks.some(item=>item.id===id) ? id : null;
   state.draft={...emptyDraftFor(state.activeTemplate),...doc.data};
@@ -683,7 +791,7 @@ function openBookmark(id){
   const doc=state.bookmarks.find(item=>item.id===id);
   if(!doc)return;
   preserveCurrentDraft();
-  state.activeTemplate=["discplate","soul"].includes(doc.template) ? doc.template : "dplate";
+  state.activeTemplate=DOCUMENT_TEMPLATES.includes(doc.template) ? doc.template : "dplate";
   state.currentDocId=state.pins.some(item=>item.id===id) ? id : null;
   state.currentBookmarkId=id;
   state.draft={...emptyDraftFor(state.activeTemplate),...doc.data};
@@ -852,6 +960,22 @@ function clipboardContent(){
 }
 
 function copyCurrent(){
+  if(state.activeTemplate==="csat"){
+    const {plain,html}=csatMessageContent();
+    if(navigator.clipboard?.write && typeof ClipboardItem!=="undefined"){
+      navigator.clipboard.write([
+        new ClipboardItem({
+          "text/html":new Blob([`<span>${html}</span>`],{type:"text/html"}),
+          "text/plain":new Blob([plain],{type:"text/plain"})
+        })
+      ]).catch(()=>copyCsatPlainText(plain));
+    }else if(navigator.clipboard?.writeText){
+      navigator.clipboard.writeText(plain).catch(()=>copyPlainTextFallback(plain));
+    }else{
+      copyPlainTextFallback(plain);
+    }
+    return;
+  }
   const {plain,html}=clipboardContent();
   navigator.clipboard.write([
     new ClipboardItem({
@@ -859,6 +983,27 @@ function copyCurrent(){
       "text/plain":new Blob([plain],{type:"text/plain"})
     })
   ]).catch(()=>navigator.clipboard.writeText(plain));
+}
+
+function copyCsatPlainText(text){
+  if(navigator.clipboard?.writeText){
+    navigator.clipboard.writeText(text).catch(()=>copyPlainTextFallback(text));
+  }else{
+    copyPlainTextFallback(text);
+  }
+}
+
+function copyPlainTextFallback(text){
+  const textarea=document.createElement("textarea");
+  textarea.value=text;
+  textarea.setAttribute("readonly","");
+  textarea.style.position="fixed";
+  textarea.style.opacity="0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied=document.execCommand("copy");
+  textarea.remove();
+  if(!copied) console.error("Unable to copy the CSAT message.");
 }
 
 document.addEventListener("click",e=>{
@@ -881,11 +1026,11 @@ document.addEventListener("click",e=>{
   if(tab){
     const nextTemplate=tab.dataset.template;
     if(state.currentBookmarkId || state.currentDocId) syncCurrentSavedDocs();
-    if(["dplate","discplate","soul"].includes(state.activeTemplate)){
+    if(DOCUMENT_TEMPLATES.includes(state.activeTemplate)){
       state.templateDrafts[state.activeTemplate]={...state.draft};
     }
     state.activeTemplate=nextTemplate;
-    if(["dplate","discplate","soul"].includes(nextTemplate)){
+    if(DOCUMENT_TEMPLATES.includes(nextTemplate)){
       state.draft={...emptyDraftFor(nextTemplate),...(state.templateDrafts[nextTemplate] || {})};
       state.templateDrafts[nextTemplate]=state.draft;
     }
@@ -952,7 +1097,7 @@ const sidebarClock=document.getElementById("sidebarClock");
 function updateSidebarClock(){
   const now=new Date();
   sidebarClock.dateTime=now.toISOString();
-  sidebarClock.textContent=now.toLocaleTimeString([], {hour:"numeric",minute:"2-digit",second:"2-digit",hour12:true}).replace(/\s/g,"");
+  sidebarClock.textContent=now.toLocaleTimeString([], {timeZone:"Asia/Manila",hour:"numeric",minute:"2-digit",second:"2-digit",hour12:true}).replace(/\s/g,"");
 }
 function updateStopwatch(){
   const elapsed=stopwatchElapsed+(stopwatchStartedAt===null?0:performance.now()-stopwatchStartedAt);
@@ -968,27 +1113,18 @@ function updateStopwatch(){
 const stopwatchToggle=document.getElementById("stopwatchToggle");
 const stopwatchReset=document.getElementById("stopwatchReset");
 stopwatchToggle.addEventListener("click",()=>{
-  if(stopwatchStartedAt===null){
-    stopwatchStartedAt=performance.now();
-    stopwatchTimer=window.setInterval(updateStopwatch,50);
-    stopwatchToggle.textContent="Pause";
-    stopwatchReset.disabled=true;
-  }else{
-    stopwatchElapsed+=performance.now()-stopwatchStartedAt;
-    stopwatchStartedAt=null;
-    window.clearInterval(stopwatchTimer);
-    stopwatchTimer=null;
-    stopwatchToggle.textContent="Start";
-    stopwatchReset.disabled=false;
-    updateStopwatch();
-  }
+  if(stopwatchStartedAt!==null) return;
+  stopwatchStartedAt=performance.now();
+  stopwatchTimer=window.setInterval(updateStopwatch,50);
+  stopwatchToggle.disabled=true;
+  stopwatchReset.disabled=false;
 });
 stopwatchReset.addEventListener("click",()=>{
   stopwatchElapsed=0;
   stopwatchStartedAt=null;
   if(stopwatchTimer!==null) window.clearInterval(stopwatchTimer);
   stopwatchTimer=null;
-  stopwatchToggle.textContent="Start";
+  stopwatchToggle.disabled=false;
   stopwatchReset.disabled=true;
   updateStopwatch();
 });
