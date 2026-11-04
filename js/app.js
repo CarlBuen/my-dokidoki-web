@@ -695,9 +695,21 @@ function preserveCurrentDraft(){
   if(!DOCUMENT_TEMPLATES.includes(state.activeTemplate)) return;
   const data={...state.draft};
   state.templateDrafts[state.activeTemplate]=data;
-  if(syncCurrentSavedDocs()) return;
-  state.currentDocId=null;
-  state.currentBookmarkId=null;
+  syncCurrentSavedDocs();
+  const hasContent=Object.entries(data).some(([key,value])=>
+    key!=="messageType" && typeof value==="string" && value.trim()!==""
+  );
+  if(!hasContent) return;
+  const id=state.currentDocId || state.currentBookmarkId || makeId();
+  let pin=state.pins.find(item=>item.id===id);
+  if(!pin){
+    pin={id,template:state.activeTemplate,carNumber:"",data:{}};
+    state.pins.push(pin);
+  }
+  pin.template=state.activeTemplate;
+  pin.data=data;
+  pin.carNumber=data.carNumber || "";
+  state.currentDocId=id;
 }
 
 function syncCurrentSavedDocs(){
